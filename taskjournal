@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Entry point for the task journal application
+
+# Get the directory of this script
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run with the venv Python
+exec "$DIR/venv/bin/python3" "$DIR/app.py"
