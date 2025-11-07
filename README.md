@@ -1,4 +1,4 @@
-# Task Journal
+# tTask
 
 A terminal-based daily task management system with outline support.
 
@@ -16,22 +16,26 @@ A terminal-based daily task management system with outline support.
 ## Installation
 
 ```bash
-cd ~/taskjournal
+git clone https://github.com/tolstoy/ttask.git
+cd ttask
 
-# Run the install script
+# Run the install script (will ask for sudo password to create global command)
 ./install.sh
-
-# Optional: Add to PATH for global access
-sudo ln -s ~/taskjournal/taskjournal /usr/local/bin/taskjournal
 ```
+
+The installer will:
+- Create a Python virtual environment
+- Install dependencies
+- Create a global `ttask` command in `/usr/local/bin/`
 
 ## Usage
 
 ```bash
-# Run the app
+# Run from anywhere after installation
+ttask
+
+# Or run directly from the project directory
 ./taskjournal
-# Or if added to PATH:
-taskjournal
 ```
 
 ## Keyboard Shortcuts

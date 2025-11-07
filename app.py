@@ -204,6 +204,8 @@ class TaskListWidget(Static):
 class TaskJournalApp(App):
     """A terminal-based daily task journal."""
 
+    TITLE = "tTask"
+
     CSS = """
     Screen {
         background: $background;
