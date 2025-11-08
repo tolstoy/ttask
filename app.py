@@ -713,12 +713,12 @@ class TaskJournalApp(App):
         """Parse natural language date input.
 
         Supports:
-        - Relative offsets: +1, -1, +7, etc.
-        - ISO format: YYYY-MM-DD
-        - Relative words: tomorrow, yesterday
-        - Day names: monday, tuesday, etc. (next occurrence)
-        - Relative weeks: next week, last week
-        - Month + day: nov 10, december 25 (current year)
+        - Relative offsets: +1, -1, +7, etc. (relative to from_date, the viewed date)
+        - ISO format: YYYY-MM-DD (absolute)
+        - Absolute words: today, tomorrow, yesterday (relative to actual current date)
+        - Day names: monday, tuesday, etc. (next occurrence from actual current date)
+        - Relative weeks: next week, last week (relative to actual current date)
+        - Month + day: nov 10, december 25 (current year based on actual current date)
         """
         import re
         from datetime import datetime
@@ -739,15 +739,18 @@ class TaskJournalApp(App):
         except ValueError:
             pass
 
-        # Relative words
-        if input_str == "tomorrow":
-            return from_date + timedelta(days=1)
+        # Absolute date words (relative to actual current date, not viewed date)
+        today = date.today()
+        if input_str == "today":
+            return today
+        elif input_str == "tomorrow":
+            return today + timedelta(days=1)
         elif input_str == "yesterday":
-            return from_date - timedelta(days=1)
+            return today - timedelta(days=1)
         elif input_str == "next week":
-            return from_date + timedelta(days=7)
+            return today + timedelta(days=7)
         elif input_str == "last week":
-            return from_date - timedelta(days=7)
+            return today - timedelta(days=7)
 
         # Day names (next occurrence)
         day_names = {
@@ -762,11 +765,12 @@ class TaskJournalApp(App):
 
         if input_str in day_names:
             target_weekday = day_names[input_str]
-            current_weekday = from_date.weekday()
+            today = date.today()
+            current_weekday = today.weekday()
             days_ahead = target_weekday - current_weekday
             if days_ahead <= 0:  # Target day already happened this week
                 days_ahead += 7
-            return from_date + timedelta(days=days_ahead)
+            return today + timedelta(days=days_ahead)
 
         # Month + day (e.g., "nov 10", "december 25")
         month_names = {
@@ -793,11 +797,12 @@ class TaskJournalApp(App):
                 try:
                     month = month_names[month_str]
                     day = int(day_str)
-                    year = from_date.year
+                    today = date.today()
+                    year = today.year
                     # Try to create the date
                     target_date = date(year, month, day)
                     # If the date is in the past, use next year
-                    if target_date < from_date:
+                    if target_date < today:
                         target_date = date(year + 1, month, day)
                     return target_date
                 except ValueError:
