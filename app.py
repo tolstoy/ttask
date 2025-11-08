@@ -90,9 +90,9 @@ class TaskListWidget(Static):
 
             # Highlight selected item - fold indicator comes before indent
             if i == self.selected_index:
-                line = f"[reverse]{marker} {fold_indicator}{indent}{checkbox} {content}[/reverse]"
+                line = f"[#ff006e on #2d2d44]{marker} [#0abdc6]{fold_indicator}[/#0abdc6]{indent}{checkbox} {content}[/#ff006e on #2d2d44]"
             else:
-                line = f"{marker} {fold_indicator}{indent}{checkbox} {content}"
+                line = f"{marker} [#0abdc6]{fold_indicator}[/#0abdc6]{indent}{checkbox} {content}"
 
             lines.append(line)
 
@@ -211,8 +211,8 @@ class CenteredFooter(Static):
 
     DEFAULT_CSS = """
     CenteredFooter {
-        background: $primary-darken-2;
-        color: $text;
+        background: #0abdc6;
+        color: #ffffff;
         dock: bottom;
         height: 1;
         text-align: center;
@@ -231,27 +231,29 @@ class HelpScreen(Screen):
     CSS = """
     HelpScreen {
         align: center middle;
+        background: rgba(26, 26, 46, 0.9);
     }
 
     #help_container {
         width: 80;
         height: auto;
         max-height: 90%;
-        background: $surface;
-        border: thick $primary;
+        background: #2d2d44;
+        border: thick #0abdc6;
         padding: 1 2;
     }
 
     #help_title {
         text-align: center;
         text-style: bold;
-        color: $primary;
+        color: #0abdc6;
         margin-bottom: 1;
     }
 
     #help_content {
         height: auto;
         overflow-y: auto;
+        color: #e2e8f0;
     }
     """
 
@@ -310,14 +312,19 @@ class TaskJournalApp(App):
 
     CSS = """
     Screen {
-        background: $background;
+        background: #1a1a2e;
+    }
+
+    Header {
+        background: #2d2d44;
+        color: #0abdc6;
     }
 
     #date_header {
         height: 3;
         content-align: center middle;
-        background: $primary;
-        color: $text;
+        background: #0abdc6;
+        color: #ffffff;
         text-style: bold;
     }
 
@@ -325,19 +332,29 @@ class TaskJournalApp(App):
         height: 1fr;
         padding: 1 2;
         overflow-y: auto;
+        background: #1a1a2e;
     }
 
     TaskListWidget {
         height: auto;
+        color: #e2e8f0;
     }
 
     #input_container {
         height: auto;
         padding: 1;
+        background: #1a1a2e;
     }
 
     Input {
         margin: 0 1;
+        background: #2d2d44;
+        color: #ffffff;
+        border: tall #8b5cf6;
+    }
+
+    Input:focus {
+        border: tall #0abdc6;
     }
     """
 
@@ -638,27 +655,27 @@ class TaskJournalApp(App):
         self.refresh_task_list()
 
     def find_prev_non_empty_day(self, start_date: date, max_days: int = 365) -> date | None:
-        """Find the previous day that has tasks."""
+        """Find the previous day that has incomplete tasks."""
         check_date = start_date - timedelta(days=1)
         for _ in range(max_days):
             file_path = self.handler.get_file_path(check_date)
             if file_path.exists():
-                # Check if file has tasks (not just a header)
+                # Check if file has tasks with at least one incomplete
                 daily_list = self.handler.load_tasks(check_date)
-                if daily_list.tasks:
+                if daily_list.tasks and any(not task.completed for task in daily_list.tasks):
                     return check_date
             check_date -= timedelta(days=1)
         return None
 
     def find_next_non_empty_day(self, start_date: date, max_days: int = 365) -> date | None:
-        """Find the next day that has tasks."""
+        """Find the next day that has incomplete tasks."""
         check_date = start_date + timedelta(days=1)
         for _ in range(max_days):
             file_path = self.handler.get_file_path(check_date)
             if file_path.exists():
-                # Check if file has tasks (not just a header)
+                # Check if file has tasks with at least one incomplete
                 daily_list = self.handler.load_tasks(check_date)
-                if daily_list.tasks:
+                if daily_list.tasks and any(not task.completed for task in daily_list.tasks):
                     return check_date
             check_date += timedelta(days=1)
         return None
