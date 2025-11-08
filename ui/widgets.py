@@ -11,10 +11,11 @@ class CenteredFooter(Static):
 
     DEFAULT_CSS = """
     CenteredFooter {
-        background: #0abdc6;
-        color: #ffffff;
+        background: transparent;
+        color: #0abdc6;
         dock: bottom;
         height: 1;
         text-align: center;
+        border: thick #0abdc6;
     }
     """
