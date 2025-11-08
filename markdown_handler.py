@@ -26,7 +26,12 @@ class MarkdownHandler:
         if not file_path.exists():
             return daily_list
 
-        content = file_path.read_text()
+        try:
+            content = file_path.read_text()
+        except (IOError, PermissionError, UnicodeDecodeError) as e:
+            # File exists but can't be read (permissions, encoding issues, etc.)
+            # Return empty task list rather than crashing
+            return daily_list
 
         # Pattern to match task lines: optional indent, dash, checkbox, optional strikethrough, content
         # Matches: "  - [ ] task" or "  - [x] ~~task~~"
@@ -59,7 +64,12 @@ class MarkdownHandler:
                 lines.append(task.to_markdown() + "\n")
             content = "".join(lines)
 
-        file_path.write_text(content)
+        try:
+            file_path.write_text(content)
+        except (IOError, PermissionError) as e:
+            # Cannot write to file (permissions, disk full, etc.)
+            # Raise the exception to let caller handle it
+            raise IOError(f"Failed to save tasks to {file_path}: {e}") from e
 
     def move_task_to_date(self, task: Task, from_date: date, to_date: date):
         """Move a task from one date to another."""

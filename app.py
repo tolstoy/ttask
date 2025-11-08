@@ -8,6 +8,8 @@ from textual.screen import Screen
 from textual import events
 from markdown_handler import MarkdownHandler
 from models import DailyTaskList, Task
+from business_logic.date_navigator import DateNavigator, NaturalDateParser
+from business_logic.task_operations import TaskGroupOperations
 
 
 class TaskListWidget(Static):
@@ -191,8 +193,9 @@ class TaskListWidget(Static):
                     new_scroll_y = line_number - viewport_height + 1
                     container.scroll_to(y=max(0, new_scroll_y), animate=False)
                 # Otherwise, task is already visible, don't scroll
-        except Exception:
-            # If scrolling fails for any reason, just continue
+        except (AttributeError, RuntimeError) as e:
+            # Scrolling failed (widget not ready or container issues)
+            # This can happen during rapid UI updates, safe to ignore
             pass
 
     def get_selected_task(self) -> Task | None:
@@ -387,6 +390,7 @@ class TaskJournalApp(App):
     def __init__(self):
         super().__init__()
         self.handler = MarkdownHandler()
+        self.date_navigator = DateNavigator(self.handler)
         self.current_date = date.today()
         self.daily_list = self.handler.load_tasks(self.current_date)
         self.adding_task = False
@@ -514,66 +518,6 @@ class TaskJournalApp(App):
             self.save_current_tasks()
             self.refresh_task_list()
 
-    def get_task_group(self, start_index: int) -> tuple[int, int]:
-        """Get the range of tasks that form a group (parent + children).
-        Returns (start_index, end_index) inclusive.
-        """
-        if start_index >= len(self.daily_list.tasks):
-            return (start_index, start_index)
-
-        parent_indent = self.daily_list.tasks[start_index].indent_level
-        end_index = start_index
-
-        # Find all consecutive children with higher indent
-        for i in range(start_index + 1, len(self.daily_list.tasks)):
-            if self.daily_list.tasks[i].indent_level > parent_indent:
-                end_index = i
-            else:
-                break
-
-        return (start_index, end_index)
-
-    def find_prev_sibling_group(self, index: int) -> tuple[int, int] | None:
-        """Find the previous sibling group at the same indent level.
-        Returns (start, end) of the sibling group, or None if not found.
-        """
-        current_task = self.daily_list.tasks[index]
-        target_indent = current_task.indent_level
-
-        # Search backwards for a task at the same indent level
-        for i in range(index - 1, -1, -1):
-            task = self.daily_list.tasks[i]
-            if task.indent_level == target_indent:
-                # Found a sibling! Get its group range
-                return self.get_task_group(i)
-            elif task.indent_level < target_indent:
-                # Found a parent (lower indent), no more siblings above
-                return None
-
-        return None
-
-    def find_next_sibling_group(self, index: int) -> tuple[int, int] | None:
-        """Find the next sibling group at the same indent level.
-        Returns (start, end) of the sibling group, or None if not found.
-        """
-        current_task = self.daily_list.tasks[index]
-        target_indent = current_task.indent_level
-
-        # First skip over the current task's children
-        _, current_end = self.get_task_group(index)
-
-        # Search forward from after current group
-        for i in range(current_end + 1, len(self.daily_list.tasks)):
-            task = self.daily_list.tasks[i]
-            if task.indent_level == target_indent:
-                # Found a sibling! Get its group range
-                return self.get_task_group(i)
-            elif task.indent_level < target_indent:
-                # Found a task with lower indent (uncle/parent level), no more siblings
-                return None
-
-        return None
-
     def action_move_task_up(self):
         """Move selected task (and its children) up, only within same indent level."""
         task_widget = self.query_one(TaskListWidget)
@@ -581,10 +525,14 @@ class TaskJournalApp(App):
             return
 
         # Get current task group
-        current_start, current_end = self.get_task_group(task_widget.selected_index)
+        current_start, current_end = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
 
         # Find previous sibling at the same indent level
-        prev_group = self.find_prev_sibling_group(task_widget.selected_index)
+        prev_group = TaskGroupOperations.find_prev_sibling_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
         if prev_group is None:
             # No sibling above at same level, can't move
             return
@@ -613,10 +561,14 @@ class TaskJournalApp(App):
         task_widget = self.query_one(TaskListWidget)
 
         # Get current task group
-        current_start, current_end = self.get_task_group(task_widget.selected_index)
+        current_start, current_end = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
 
         # Find next sibling at the same indent level
-        next_group = self.find_next_sibling_group(task_widget.selected_index)
+        next_group = TaskGroupOperations.find_next_sibling_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
         if next_group is None:
             # No sibling below at same level, can't move
             return
@@ -654,35 +606,9 @@ class TaskJournalApp(App):
         self.update_date_header()
         self.refresh_task_list()
 
-    def find_prev_non_empty_day(self, start_date: date, max_days: int = 365) -> date | None:
-        """Find the previous day that has incomplete tasks."""
-        check_date = start_date - timedelta(days=1)
-        for _ in range(max_days):
-            file_path = self.handler.get_file_path(check_date)
-            if file_path.exists():
-                # Check if file has tasks with at least one incomplete
-                daily_list = self.handler.load_tasks(check_date)
-                if daily_list.tasks and any(not task.completed for task in daily_list.tasks):
-                    return check_date
-            check_date -= timedelta(days=1)
-        return None
-
-    def find_next_non_empty_day(self, start_date: date, max_days: int = 365) -> date | None:
-        """Find the next day that has incomplete tasks."""
-        check_date = start_date + timedelta(days=1)
-        for _ in range(max_days):
-            file_path = self.handler.get_file_path(check_date)
-            if file_path.exists():
-                # Check if file has tasks with at least one incomplete
-                daily_list = self.handler.load_tasks(check_date)
-                if daily_list.tasks and any(not task.completed for task in daily_list.tasks):
-                    return check_date
-            check_date += timedelta(days=1)
-        return None
-
     def action_prev_non_empty_day(self):
         """Navigate to previous non-empty day."""
-        prev_date = self.find_prev_non_empty_day(self.current_date)
+        prev_date = self.date_navigator.find_prev_non_empty_day(self.current_date)
         if prev_date:
             self.current_date = prev_date
             self.daily_list = self.handler.load_tasks(self.current_date)
@@ -691,7 +617,7 @@ class TaskJournalApp(App):
 
     def action_next_non_empty_day(self):
         """Navigate to next non-empty day."""
-        next_date = self.find_next_non_empty_day(self.current_date)
+        next_date = self.date_navigator.find_next_non_empty_day(self.current_date)
         if next_date:
             self.current_date = next_date
             self.daily_list = self.handler.load_tasks(self.current_date)
@@ -708,107 +634,6 @@ class TaskJournalApp(App):
     def action_show_help(self):
         """Show the help screen."""
         self.push_screen(HelpScreen())
-
-    def parse_natural_date(self, input_str: str, from_date: date) -> date | None:
-        """Parse natural language date input.
-
-        Supports:
-        - Relative offsets: +1, -1, +7, etc. (relative to from_date, the viewed date)
-        - ISO format: YYYY-MM-DD (absolute)
-        - Absolute words: today, tomorrow, yesterday (relative to actual current date)
-        - Day names: monday, tuesday, etc. (next occurrence from actual current date)
-        - Relative weeks: next week, last week (relative to actual current date)
-        - Month + day: nov 10, december 25 (current year based on actual current date)
-        """
-        import re
-        from datetime import datetime
-
-        input_str = input_str.strip().lower()
-
-        # Try relative offset (+1, -1, etc.)
-        if input_str.startswith('+') or input_str.startswith('-'):
-            try:
-                days = int(input_str)
-                return from_date + timedelta(days=days)
-            except ValueError:
-                pass
-
-        # Try ISO format (YYYY-MM-DD)
-        try:
-            return date.fromisoformat(input_str)
-        except ValueError:
-            pass
-
-        # Absolute date words (relative to actual current date, not viewed date)
-        today = date.today()
-        if input_str == "today":
-            return today
-        elif input_str == "tomorrow":
-            return today + timedelta(days=1)
-        elif input_str == "yesterday":
-            return today - timedelta(days=1)
-        elif input_str == "next week":
-            return today + timedelta(days=7)
-        elif input_str == "last week":
-            return today - timedelta(days=7)
-
-        # Day names (next occurrence)
-        day_names = {
-            "monday": 0, "mon": 0,
-            "tuesday": 1, "tue": 1, "tues": 1,
-            "wednesday": 2, "wed": 2,
-            "thursday": 3, "thu": 3, "thurs": 3,
-            "friday": 4, "fri": 4,
-            "saturday": 5, "sat": 5,
-            "sunday": 6, "sun": 6
-        }
-
-        if input_str in day_names:
-            target_weekday = day_names[input_str]
-            today = date.today()
-            current_weekday = today.weekday()
-            days_ahead = target_weekday - current_weekday
-            if days_ahead <= 0:  # Target day already happened this week
-                days_ahead += 7
-            return today + timedelta(days=days_ahead)
-
-        # Month + day (e.g., "nov 10", "december 25")
-        month_names = {
-            "jan": 1, "january": 1,
-            "feb": 2, "february": 2,
-            "mar": 3, "march": 3,
-            "apr": 4, "april": 4,
-            "may": 5,
-            "jun": 6, "june": 6,
-            "jul": 7, "july": 7,
-            "aug": 8, "august": 8,
-            "sep": 9, "sept": 9, "september": 9,
-            "oct": 10, "october": 10,
-            "nov": 11, "november": 11,
-            "dec": 12, "december": 12
-        }
-
-        # Try to match "month day" pattern
-        pattern = r'^(\w+)\s+(\d{1,2})$'
-        match = re.match(pattern, input_str)
-        if match:
-            month_str, day_str = match.groups()
-            if month_str in month_names:
-                try:
-                    month = month_names[month_str]
-                    day = int(day_str)
-                    today = date.today()
-                    year = today.year
-                    # Try to create the date
-                    target_date = date(year, month, day)
-                    # If the date is in the past, use next year
-                    if target_date < today:
-                        target_date = date(year + 1, month, day)
-                    return target_date
-                except ValueError:
-                    pass
-
-        return None
 
     def action_add_task(self):
         """Show input to add a new task."""
@@ -892,7 +717,7 @@ class TaskJournalApp(App):
         elif self.moving_task:
             if value and self.task_to_move:
                 # Parse date input using natural language parser
-                target_date = self.parse_natural_date(value, self.current_date)
+                target_date = NaturalDateParser.parse(value, self.current_date)
 
                 if target_date:
                     try:
@@ -909,8 +734,10 @@ class TaskJournalApp(App):
                         self.save_current_tasks()
                         self.refresh_task_list()
 
-                    except (ValueError, TypeError):
-                        pass  # Error moving task, just cancel
+                    except (ValueError, TypeError, IOError) as e:
+                        # Error moving task (invalid date, file I/O error, etc.)
+                        # Silently cancel the operation - task remains in place
+                        pass
 
             self.moving_task = False
             self.task_to_move = None

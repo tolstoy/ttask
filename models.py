@@ -6,12 +6,15 @@ from datetime import date
 
 @dataclass
 class Task:
-    """Represents a single task with optional nesting."""
+    """Represents a single task.
+
+    Tasks are organized hierarchically using indent_level, stored in a flat list.
+    The folded attribute controls whether child tasks (higher indent) are visible.
+    """
     content: str
     completed: bool = False
     indent_level: int = 0
     folded: bool = False
-    children: List['Task'] = field(default_factory=list)
 
     def toggle_complete(self):
         """Toggle completion status."""
