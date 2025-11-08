@@ -71,7 +71,7 @@ class TaskJournalApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", priority=True, show=False),
+        Binding("q", "quit", "Quit", show=False),
         Binding("h", "show_help", "Help", show=False),
         Binding("a", "add_task", "Add", show=False),
         Binding("x", "toggle_complete", "Complete", show=False),
@@ -452,13 +452,6 @@ class TaskJournalApp(App):
 
         # Remove input widget
         event.input.remove()
-
-    def action_quit(self) -> None:
-        """Quit the application, but not if we're in an input widget."""
-        # Don't quit if we're currently in an input state
-        if self.adding_task or self.editing_task or self.moving_task:
-            return
-        self.exit()
 
     def on_key(self, event: events.Key) -> None:
         """Handle special keys."""
