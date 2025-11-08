@@ -63,28 +63,21 @@ class TaskListWidget(Static):
             return [""]
 
         lines = []
-        current_line = ""
+        current_line = words[0]  # Start with first word
 
-        for word in words:
-            # Calculate what the line would be with this word added
-            test_line = f"{current_line} {word}".strip()
-
+        for word in words[1:]:  # Iterate from second word onwards
             # Calculate visible length by removing ALL Rich markup tags
             # Pattern matches [anything] or [/anything]
-            visible_test = re.sub(r'\[/?[^\]]*\]', '', test_line)
+            visible_current = re.sub(r'\[/?[^\]]*\]', '', current_line)
+            visible_word = re.sub(r'\[/?[^\]]*\]', '', word)
 
-            # Check if adding this word would exceed width
-            if len(visible_test) <= width:
-                current_line = test_line
+            # Check if adding this word (with a space) would exceed width
+            if len(visible_current) + 1 + len(visible_word) <= width:
+                current_line = f"{current_line} {word}"
             else:
-                # Line would be too long
-                if current_line:
-                    # Save current line and start new one
-                    lines.append(current_line)
-                    current_line = word
-                else:
-                    # Single word is too long, add it anyway
-                    current_line = word
+                # Line would be too long, save current line and start new one
+                lines.append(current_line)
+                current_line = word
 
         # Add the last line
         if current_line:
