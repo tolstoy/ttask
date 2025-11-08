@@ -97,3 +97,46 @@ When folded:
   [x] ~~Team meeting~~
 ▶ [ ] Write documentation
 ```
+
+## Development
+
+### Project Structure
+```
+tTask/
+├── app.py                      # Main application
+├── models.py                   # Data models (Task, DailyTaskList)
+├── markdown_handler.py         # File I/O for markdown storage
+├── config.py                   # Centralized configuration
+├── business_logic/             # Business logic modules
+│   ├── date_navigator.py       # Date navigation & parsing
+│   └── task_operations.py      # Task group operations
+├── ui/                         # UI widgets
+│   ├── help_screen.py          # Help modal
+│   ├── task_list_widget.py     # Task list rendering
+│   └── widgets.py              # Reusable widgets
+└── tests/                      # Test suite (63 tests)
+    ├── test_task_list_widget.py
+    ├── test_date_parser.py
+    └── test_task_operations.py
+```
+
+### Running Tests
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test file
+python -m pytest tests/test_task_list_widget.py -v
+
+# Run with coverage
+python -m pytest tests/ --cov=. --cov-report=html
+```
+
+### Code Quality
+- **Type hints**: Full type annotations throughout
+- **Modular design**: Business logic, UI, and data models separated
+- **Comprehensive tests**: 63 tests covering edge cases and core functionality
+- **Clean code**: No TODOs, proper error handling, consistent style

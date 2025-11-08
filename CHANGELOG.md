@@ -1,5 +1,50 @@
 # Changelog
 
+## 2025-11-08 - Code Quality: Phase 3 Refactoring
+
+### Changed
+- **Extracted UI widgets to dedicated module**: Improved code organization and maintainability
+  - Created `ui/` module with HelpScreen, TaskListWidget, and CenteredFooter
+  - Reduced app.py from ~690 to ~480 lines
+  - Better separation of concerns between UI and application logic
+
+### Added
+- **Comprehensive test suite**: 63 passing tests covering edge cases
+  - `tests/test_task_list_widget.py`: 46 tests for widget behavior, folding, visibility, rendering
+  - Enhanced `tests/test_date_parser.py`: Added 15 edge case tests for date parsing
+  - Enhanced `tests/test_task_operations.py`: Added 13 tests for complex task hierarchies
+  - All critical functionality now has test coverage
+
+## 2025-11-08 - Code Quality: Phase 2 Refactoring
+
+### Added
+- **Type hints throughout codebase**: Full type annotations using Python 3.10+ syntax
+  - Added type hints to all methods in app.py
+  - Improved IDE support and type checking
+  - Used `Optional[T]` and `T | None` for nullable types
+- **Centralized configuration**: Created `config.py` with Config dataclass
+  - Eliminated hardcoded values (max_indent_level, max_search_days, colors)
+  - Configuration can be customized via environment or config file
+- **Helper methods**: Added `save_and_refresh()` to eliminate code duplication
+- **Basic test structure**: Created `tests/` directory with conftest.py fixtures
+
+## 2025-11-08 - Code Quality: Phase 1 Refactoring
+
+### Added
+- **Business logic extraction**: Created `business_logic/` module
+  - `date_navigator.py`: Date navigation and natural language parsing
+  - `task_operations.py`: Task group operations (finding siblings, getting groups)
+  - Moved 260+ lines out of app.py for better organization
+
+### Fixed
+- **Error handling improvements**: Replaced bare `except Exception` with specific exception types
+  - File I/O: `IOError`, `PermissionError`, `UnicodeDecodeError`
+  - UI operations: `AttributeError`, `RuntimeError`
+  - Task operations: `ValueError`, `TypeError`, `IOError`
+
+### Removed
+- **Unused model fields**: Removed `children` field from Task model (was never used)
+
 ## 2025-11-07 - Update 6: Context-Aware Task Addition
 
 ### Changed
