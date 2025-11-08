@@ -208,20 +208,46 @@ class TaskJournalApp(App):
             self.save_and_refresh()
 
     def action_indent(self) -> None:
-        """Indent the selected task."""
+        """Indent the selected task and all its children."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
-        if task and task.indent_level < config.max_indent_level:
-            task.indent_level += 1
+        if not task:
+            return
+
+        # Get the task group (parent + all children)
+        start_idx, end_idx = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
+
+        # Find the maximum indent level in the group
+        max_group_indent = max(
+            self.daily_list.tasks[i].indent_level
+            for i in range(start_idx, end_idx + 1)
+        )
+
+        # Only indent if the deepest child won't exceed max indent level
+        if max_group_indent < config.max_indent_level:
+            # Indent all tasks in the group
+            for i in range(start_idx, end_idx + 1):
+                self.daily_list.tasks[i].indent_level += 1
             self.save_and_refresh()
 
     def action_unindent(self) -> None:
-        """Unindent the selected task."""
+        """Unindent the selected task and all its children."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
-        if task and task.indent_level > 0:
-            task.indent_level -= 1
-            self.save_and_refresh()
+        if not task or task.indent_level == 0:
+            return
+
+        # Get the task group (parent + all children)
+        start_idx, end_idx = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
+
+        # Unindent all tasks in the group
+        for i in range(start_idx, end_idx + 1):
+            self.daily_list.tasks[i].indent_level -= 1
+        self.save_and_refresh()
 
     def action_toggle_fold(self) -> None:
         """Toggle fold status of selected task."""
