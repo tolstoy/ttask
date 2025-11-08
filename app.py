@@ -453,6 +453,13 @@ class TaskJournalApp(App):
         # Remove input widget
         event.input.remove()
 
+    def action_quit(self) -> None:
+        """Quit the application, but not if we're in an input widget."""
+        # Don't quit if we're currently in an input state
+        if self.adding_task or self.editing_task or self.moving_task:
+            return
+        self.exit()
+
     def on_key(self, event: events.Key) -> None:
         """Handle special keys."""
         # Check if we're in an input widget - if so, don't intercept
