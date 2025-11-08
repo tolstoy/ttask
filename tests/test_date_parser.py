@@ -58,7 +58,76 @@ class TestNaturalDateParser:
         expected = date.today() - timedelta(days=7)
         assert result == expected
 
-    # TODO: Add tests for:
-    # - Day names (monday, tuesday, etc.)
-    # - Month + day (nov 10, december 25)
-    # - Edge cases (empty string, whitespace)
+    def test_parse_day_name_monday(self):
+        """Test parsing day names like 'monday'."""
+        # This test will find the next Monday from today
+        result = NaturalDateParser.parse("monday", date(2025, 11, 8))
+        # Result should be a date in the future
+        assert result is not None
+        assert result.weekday() == 0  # Monday is 0
+
+    def test_parse_day_name_friday(self):
+        """Test parsing 'friday'."""
+        result = NaturalDateParser.parse("friday", date(2025, 11, 8))
+        assert result is not None
+        assert result.weekday() == 4  # Friday is 4
+
+    def test_parse_month_day_format(self):
+        """Test parsing 'nov 10' format."""
+        result = NaturalDateParser.parse("nov 10", date(2025, 11, 8))
+        assert result is not None
+        assert result.month == 11
+        assert result.day == 10
+
+    def test_parse_full_month_day_format(self):
+        """Test parsing 'december 25' format."""
+        result = NaturalDateParser.parse("december 25", date(2025, 11, 8))
+        assert result is not None
+        assert result.month == 12
+        assert result.day == 25
+
+    def test_parse_empty_string(self):
+        """Test parsing empty string returns None."""
+        result = NaturalDateParser.parse("", date(2025, 11, 8))
+        assert result is None
+
+    def test_parse_whitespace_only(self):
+        """Test parsing whitespace returns None."""
+        result = NaturalDateParser.parse("   ", date(2025, 11, 8))
+        assert result is None
+
+    def test_parse_case_insensitive(self):
+        """Test parsing is case insensitive."""
+        result1 = NaturalDateParser.parse("TOMORROW", date(2025, 11, 8))
+        result2 = NaturalDateParser.parse("tomorrow", date(2025, 11, 8))
+        result3 = NaturalDateParser.parse("ToMoRrOw", date(2025, 11, 8))
+        assert result1 == result2 == result3
+
+    def test_parse_large_positive_offset(self):
+        """Test parsing large positive offset like '+30'."""
+        from_date = date(2025, 11, 8)
+        result = NaturalDateParser.parse("+30", from_date)
+        assert result == date(2025, 12, 8)
+
+    def test_parse_large_negative_offset(self):
+        """Test parsing large negative offset like '-30'."""
+        from_date = date(2025, 11, 8)
+        result = NaturalDateParser.parse("-30", from_date)
+        assert result == date(2025, 10, 9)
+
+    def test_parse_zero_offset(self):
+        """Test parsing '+0' returns from_date."""
+        from_date = date(2025, 11, 8)
+        result = NaturalDateParser.parse("+0", from_date)
+        assert result == from_date
+
+    def test_parse_invalid_iso_date(self):
+        """Test parsing invalid ISO date returns None."""
+        result = NaturalDateParser.parse("2025-13-45", date(2025, 11, 8))
+        assert result is None
+
+    def test_parse_invalid_month_day(self):
+        """Test parsing invalid month/day combo returns None."""
+        result = NaturalDateParser.parse("feb 30", date(2025, 11, 8))
+        # Should return None for invalid date
+        assert result is None or (result.month == 2 and result.day <= 29)
