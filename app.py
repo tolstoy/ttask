@@ -240,6 +240,7 @@ class TaskJournalApp(App):
 
     Footer {
         background: $primary-darken-2;
+        height: auto;
     }
     """
 
