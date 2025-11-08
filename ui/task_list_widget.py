@@ -90,16 +90,19 @@ class TaskListWidget(Static):
         if not self.daily_list.tasks:
             return "[dim]No tasks for today. Press 'a' to add one.[/dim]"
 
-        # Get available width for wrapping
+        # Get available width for wrapping (accounting for padding and scrollbar)
         # Try multiple sources for width, with fallback to conservative default
         available_width = 80  # Conservative default
         try:
-            # Try to get console width from app
-            if hasattr(self, 'app') and hasattr(self.app, 'console'):
-                available_width = self.app.console.width - 4
-            # Fall back to parent container width
+            # Try to get scrollable content region (excludes padding, border, scrollbar)
+            if self.parent and hasattr(self.parent, 'scrollable_content_region'):
+                available_width = self.parent.scrollable_content_region.width
+            # Fall back to parent container width minus padding and scrollbar
             elif self.parent and hasattr(self.parent, 'size') and self.parent.size:
-                available_width = self.parent.size.width - 4
+                available_width = self.parent.size.width - 6  # -4 padding, -2 scrollbar
+            # Last resort: console width
+            elif hasattr(self, 'app') and hasattr(self.app, 'console'):
+                available_width = self.app.console.width - 6
         except (AttributeError, TypeError):
             pass  # Use default
 
@@ -173,16 +176,19 @@ class TaskListWidget(Static):
         visible_line = 0
         skip_until_indent = None
 
-        # Get available width for wrapping calculation
+        # Get available width for wrapping calculation (accounting for padding and scrollbar)
         # Try multiple sources for width, with fallback to conservative default
         available_width = 80  # Conservative default
         try:
-            # Try to get console width from app
-            if hasattr(self, 'app') and hasattr(self.app, 'console'):
-                available_width = self.app.console.width - 4
-            # Fall back to parent container width
+            # Try to get scrollable content region (excludes padding, border, scrollbar)
+            if self.parent and hasattr(self.parent, 'scrollable_content_region'):
+                available_width = self.parent.scrollable_content_region.width
+            # Fall back to parent container width minus padding and scrollbar
             elif self.parent and hasattr(self.parent, 'size') and self.parent.size:
-                available_width = self.parent.size.width - 4
+                available_width = self.parent.size.width - 6  # -4 padding, -2 scrollbar
+            # Last resort: console width
+            elif hasattr(self, 'app') and hasattr(self.app, 'console'):
+                available_width = self.app.console.width - 6
         except (AttributeError, TypeError):
             pass  # Use default
 
