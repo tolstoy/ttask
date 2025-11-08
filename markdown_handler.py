@@ -4,13 +4,23 @@ from pathlib import Path
 from datetime import date
 from typing import Optional
 from models import Task, DailyTaskList
+from config import config
 
 
 class MarkdownHandler:
     """Parse and write task lists in markdown format."""
 
-    def __init__(self, base_dir: str = "~/tasks"):
-        self.base_dir = Path(base_dir).expanduser()
+    def __init__(self, base_dir: Optional[str] = None):
+        """
+        Initialize MarkdownHandler.
+
+        Args:
+            base_dir: Optional base directory path. If None, uses config.base_dir.
+        """
+        if base_dir is None:
+            self.base_dir = config.base_dir
+        else:
+            self.base_dir = Path(base_dir).expanduser()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def get_file_path(self, task_date: date) -> Path:

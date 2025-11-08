@@ -1,8 +1,9 @@
 """Main TUI application for task journal."""
 from datetime import date, timedelta
+from typing import Optional
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Static, Input
-from textual.containers import Container, Vertical
+from textual.containers import Container
 from textual.binding import Binding
 from textual.screen import Screen
 from textual import events
@@ -10,6 +11,7 @@ from markdown_handler import MarkdownHandler
 from models import DailyTaskList, Task
 from business_logic.date_navigator import DateNavigator, NaturalDateParser
 from business_logic.task_operations import TaskGroupOperations
+from config import config
 
 
 class TaskListWidget(Static):
@@ -130,7 +132,7 @@ class TaskListWidget(Static):
 
         return visible_line
 
-    def move_selection(self, delta: int):
+    def move_selection(self, delta: int) -> None:
         """Move the selection up or down, skipping hidden tasks."""
         if not self.daily_list.tasks:
             return
@@ -164,7 +166,7 @@ class TaskListWidget(Static):
         # Scroll to keep the selected task visible
         self.scroll_to_selected()
 
-    def scroll_to_selected(self):
+    def scroll_to_selected(self) -> None:
         """Scroll the parent container only when selected task reaches viewport edges."""
         if not self.daily_list.tasks:
             return
@@ -415,13 +417,13 @@ class TaskJournalApp(App):
         """Set up the app after mounting."""
         self.update_date_header()
 
-    def update_date_header(self):
+    def update_date_header(self) -> None:
         """Update the date header."""
         header = self.query_one("#date_header", Static)
         date_str = self.current_date.strftime("%A, %B %d, %Y")
         header.update(date_str)
 
-    def refresh_task_list(self):
+    def refresh_task_list(self) -> None:
         """Refresh the task list widget."""
         task_widget = self.query_one(TaskListWidget)
         task_widget.daily_list = self.daily_list
@@ -460,65 +462,69 @@ class TaskJournalApp(App):
         # Scroll to keep the selected task visible
         task_widget.scroll_to_selected()
 
-    def save_current_tasks(self):
+    def save_current_tasks(self) -> None:
         """Save the current task list."""
         self.handler.save_tasks(self.daily_list)
 
-    def action_move_down(self):
+    def save_and_refresh(self) -> None:
+        """Save current tasks and refresh the UI display.
+
+        Helper method to reduce duplication of the common pattern:
+        save_current_tasks() followed by refresh_task_list().
+        """
+        self.save_current_tasks()
+        self.refresh_task_list()
+
+    def action_move_down(self) -> None:
         """Move selection down."""
         task_widget = self.query_one(TaskListWidget)
         task_widget.move_selection(1)
 
-    def action_move_up(self):
+    def action_move_up(self) -> None:
         """Move selection up."""
         task_widget = self.query_one(TaskListWidget)
         task_widget.move_selection(-1)
 
-    def action_toggle_complete(self):
+    def action_toggle_complete(self) -> None:
         """Toggle completion of selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
         if task:
             task.toggle_complete()
-            self.save_current_tasks()
-            self.refresh_task_list()
+            self.save_and_refresh()
 
-    def action_delete_task(self):
+    def action_delete_task(self) -> None:
         """Delete the selected task."""
         task_widget = self.query_one(TaskListWidget)
         if self.daily_list.tasks:
             self.daily_list.remove_task(task_widget.selected_index)
-            self.save_current_tasks()
-            self.refresh_task_list()
+            self.save_and_refresh()
 
-    def action_indent(self):
+    def action_indent(self) -> None:
         """Indent the selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
-        if task and task.indent_level < 5:  # Max 5 levels
+        if task and task.indent_level < config.max_indent_level:
             task.indent_level += 1
-            self.save_current_tasks()
-            self.refresh_task_list()
+            self.save_and_refresh()
 
-    def action_unindent(self):
+    def action_unindent(self) -> None:
         """Unindent the selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
         if task and task.indent_level > 0:
             task.indent_level -= 1
-            self.save_current_tasks()
-            self.refresh_task_list()
+            self.save_and_refresh()
 
-    def action_toggle_fold(self):
+    def action_toggle_fold(self) -> None:
         """Toggle fold status of selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
         if task and task_widget.has_children(task_widget.selected_index):
             task.toggle_fold()
-            self.save_current_tasks()
-            self.refresh_task_list()
+            self.save_and_refresh()
 
-    def action_move_task_up(self):
+    def action_move_task_up(self) -> None:
         """Move selected task (and its children) up, only within same indent level."""
         task_widget = self.query_one(TaskListWidget)
         if task_widget.selected_index <= 0:
@@ -553,10 +559,9 @@ class TaskJournalApp(App):
 
         self.daily_list.tasks = new_tasks
         task_widget.selected_index = prev_start
-        self.save_current_tasks()
-        self.refresh_task_list()
+        self.save_and_refresh()
 
-    def action_move_task_down(self):
+    def action_move_task_down(self) -> None:
         """Move selected task (and its children) down, only within same indent level."""
         task_widget = self.query_one(TaskListWidget)
 
@@ -589,24 +594,23 @@ class TaskJournalApp(App):
 
         self.daily_list.tasks = new_tasks
         task_widget.selected_index = current_start + len(next_group_tasks)
-        self.save_current_tasks()
-        self.refresh_task_list()
+        self.save_and_refresh()
 
-    def action_next_day(self):
+    def action_next_day(self) -> None:
         """Navigate to next day."""
         self.current_date += timedelta(days=1)
         self.daily_list = self.handler.load_tasks(self.current_date)
         self.update_date_header()
         self.refresh_task_list()
 
-    def action_prev_day(self):
+    def action_prev_day(self) -> None:
         """Navigate to previous day."""
         self.current_date -= timedelta(days=1)
         self.daily_list = self.handler.load_tasks(self.current_date)
         self.update_date_header()
         self.refresh_task_list()
 
-    def action_prev_non_empty_day(self):
+    def action_prev_non_empty_day(self) -> None:
         """Navigate to previous non-empty day."""
         prev_date = self.date_navigator.find_prev_non_empty_day(self.current_date)
         if prev_date:
@@ -615,7 +619,7 @@ class TaskJournalApp(App):
             self.update_date_header()
             self.refresh_task_list()
 
-    def action_next_non_empty_day(self):
+    def action_next_non_empty_day(self) -> None:
         """Navigate to next non-empty day."""
         next_date = self.date_navigator.find_next_non_empty_day(self.current_date)
         if next_date:
@@ -624,18 +628,18 @@ class TaskJournalApp(App):
             self.update_date_header()
             self.refresh_task_list()
 
-    def action_today(self):
+    def action_today(self) -> None:
         """Navigate to today."""
         self.current_date = date.today()
         self.daily_list = self.handler.load_tasks(self.current_date)
         self.update_date_header()
         self.refresh_task_list()
 
-    def action_show_help(self):
+    def action_show_help(self) -> None:
         """Show the help screen."""
         self.push_screen(HelpScreen())
 
-    def action_add_task(self):
+    def action_add_task(self) -> None:
         """Show input to add a new task."""
         if self.adding_task:
             return
@@ -659,7 +663,7 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
-    def action_edit_task(self):
+    def action_edit_task(self) -> None:
         """Edit the selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
@@ -672,7 +676,7 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
-    def action_move_task(self):
+    def action_move_task(self) -> None:
         """Move task to another day."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
@@ -686,7 +690,7 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
-    def on_input_submitted(self, event: Input.Submitted):
+    def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission."""
         value = event.value.strip()
 
@@ -697,8 +701,7 @@ class TaskJournalApp(App):
                     indent_level=self.new_task_indent_level,
                     index=self.new_task_insert_index
                 )
-                self.save_current_tasks()
-                self.refresh_task_list()
+                self.save_and_refresh()
             self.adding_task = False
             # Reset insert position and indent
             self.new_task_insert_index = None
@@ -710,8 +713,7 @@ class TaskJournalApp(App):
                 task = task_widget.get_selected_task()
                 if task:
                     task.content = value
-                    self.save_current_tasks()
-                    self.refresh_task_list()
+                    self.save_and_refresh()
             self.editing_task = False
 
         elif self.moving_task:
@@ -731,8 +733,7 @@ class TaskJournalApp(App):
 
                         # Remove from current day
                         self.daily_list.remove_task(task_widget.selected_index)
-                        self.save_current_tasks()
-                        self.refresh_task_list()
+                        self.save_and_refresh()
 
                     except (ValueError, TypeError, IOError) as e:
                         # Error moving task (invalid date, file I/O error, etc.)
@@ -745,7 +746,7 @@ class TaskJournalApp(App):
         # Remove input widget
         event.input.remove()
 
-    def on_key(self, event: events.Key):
+    def on_key(self, event: events.Key) -> None:
         """Handle special keys."""
         # Check if we're in an input widget - if so, don't intercept
         focused = self.focused

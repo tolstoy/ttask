@@ -3,6 +3,7 @@ import re
 from datetime import date, timedelta
 from typing import Optional
 from markdown_handler import MarkdownHandler
+from config import config
 
 
 class DateNavigator:
@@ -17,17 +18,22 @@ class DateNavigator:
         """
         self.handler = handler
 
-    def find_prev_non_empty_day(self, start_date: date, max_days: int = 365) -> Optional[date]:
+    def find_prev_non_empty_day(
+        self, start_date: date, max_days: Optional[int] = None
+    ) -> Optional[date]:
         """
         Find the previous day that has incomplete tasks.
 
         Args:
             start_date: Date to start searching from
-            max_days: Maximum number of days to search backwards
+            max_days: Maximum number of days to search backwards (uses config.max_search_days if None)
 
         Returns:
             Date of previous day with incomplete tasks, or None if not found
         """
+        if max_days is None:
+            max_days = config.max_search_days
+
         check_date = start_date - timedelta(days=1)
         for _ in range(max_days):
             file_path = self.handler.get_file_path(check_date)
@@ -39,17 +45,22 @@ class DateNavigator:
             check_date -= timedelta(days=1)
         return None
 
-    def find_next_non_empty_day(self, start_date: date, max_days: int = 365) -> Optional[date]:
+    def find_next_non_empty_day(
+        self, start_date: date, max_days: Optional[int] = None
+    ) -> Optional[date]:
         """
         Find the next day that has incomplete tasks.
 
         Args:
             start_date: Date to start searching from
-            max_days: Maximum number of days to search forward
+            max_days: Maximum number of days to search forward (uses config.max_search_days if None)
 
         Returns:
             Date of next day with incomplete tasks, or None if not found
         """
+        if max_days is None:
+            max_days = config.max_search_days
+
         check_date = start_date + timedelta(days=1)
         for _ in range(max_days):
             file_path = self.handler.get_file_path(check_date)
