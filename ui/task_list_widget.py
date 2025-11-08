@@ -1,4 +1,5 @@
 """Task list widget for displaying and navigating tasks."""
+import re
 from typing import Optional
 from textual.widgets import Static
 from models import DailyTaskList, Task
@@ -43,16 +44,15 @@ class TaskListWidget(Static):
 
         return True
 
-    def wrap_text(self, text: str, width: int, indent: str = "") -> list[str]:
+    def wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text to fit within width, preserving Rich markup.
 
         Args:
             text: The text to wrap (may contain Rich markup tags)
-            width: Maximum width for the text
-            indent: String to prepend to continuation lines
+            width: Maximum width for each line
 
         Returns:
-            List of wrapped lines
+            List of wrapped lines (without indentation - that's added during rendering)
         """
         if width <= 10:  # Minimum reasonable width
             return [text]  # Can't wrap meaningfully, return as-is
@@ -64,23 +64,14 @@ class TaskListWidget(Static):
 
         lines = []
         current_line = ""
-        is_first_line = True
 
         for word in words:
             # Calculate what the line would be with this word added
-            if current_line:
-                test_line = f"{current_line} {word}"
-            else:
-                # For continuation lines, include the indent
-                if is_first_line:
-                    test_line = word
-                else:
-                    test_line = indent + word
+            test_line = f"{current_line} {word}".strip()
 
-            # Calculate visible length (remove common markup tags)
-            visible_test = test_line
-            for tag in ["[strike]", "[/strike]", "[dim]", "[/dim]"]:
-                visible_test = visible_test.replace(tag, "")
+            # Calculate visible length by removing ALL Rich markup tags
+            # Pattern matches [anything] or [/anything]
+            visible_test = re.sub(r'\[/?[^\]]*\]', '', test_line)
 
             # Check if adding this word would exceed width
             if len(visible_test) <= width:
@@ -90,11 +81,10 @@ class TaskListWidget(Static):
                 if current_line:
                     # Save current line and start new one
                     lines.append(current_line)
-                    current_line = indent + word
-                    is_first_line = False
+                    current_line = word
                 else:
                     # Single word is too long, add it anyway
-                    current_line = test_line
+                    current_line = word
 
         # Add the last line
         if current_line:
@@ -149,20 +139,18 @@ class TaskListWidget(Static):
             checkbox = "\\[x]" if task.completed else "\\[ ]"
 
             # Calculate prefix length (visible characters before content)
-            # marker (1) + space (1) + fold_indicator (2) + indent + checkbox (3) + space (1)
-            prefix_length = 1 + 1 + 2 + len(indent) + 3 + 1
+            # marker (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
+            prefix_length = 1 + 1 + len(indent) + 2 + 3 + 1
 
             # Calculate available width for content
-            content_width = max(20, available_width - prefix_length)
-
-            # Wrap the content if needed
-            # Continuation lines get indent to align with content start
-            continuation_indent = " " * prefix_length
-            wrapped_lines = self.wrap_text(
-                task.content,
-                content_width,
-                indent=continuation_indent
-            )
+            # Ensure we have at least 20 chars for content, otherwise don't wrap
+            if available_width - prefix_length < 20:
+                # Terminal too narrow for meaningful wrapping
+                wrapped_lines = [task.content]
+            else:
+                content_width = available_width - prefix_length
+                # Wrap the content (returns plain wrapped lines without indent)
+                wrapped_lines = self.wrap_text(task.content, content_width)
 
             # Apply strikethrough if completed
             if task.completed:
@@ -176,12 +164,13 @@ class TaskListWidget(Static):
 
             lines.append(first_line)
 
-            # Add continuation lines if any (already indented by wrap_text)
+            # Add continuation lines with proper indentation
+            continuation_indent = " " * prefix_length
             for continuation in wrapped_lines[1:]:
                 if i == self.selected_index:
-                    cont_line = f"[#ff006e on #2d2d44]{continuation}[/#ff006e on #2d2d44]"
+                    cont_line = f"[#ff006e on #2d2d44]{continuation_indent}{continuation}[/#ff006e on #2d2d44]"
                 else:
-                    cont_line = continuation
+                    cont_line = f"{continuation_indent}{continuation}"
                 lines.append(cont_line)
 
         return "\n".join(lines)
@@ -226,10 +215,18 @@ class TaskListWidget(Static):
                 return visible_line
 
             # Calculate how many lines this task occupies (accounting for wrapping)
+            # Must match the logic in render() method
             indent = "  " * task.indent_level
-            prefix_length = 1 + 1 + 2 + len(indent) + 3 + 1
-            content_width = max(20, available_width - prefix_length)
-            wrapped_lines = self.wrap_text(task.content, content_width)
+            prefix_length = 1 + 1 + len(indent) + 2 + 3 + 1
+
+            # Same width validation as render()
+            if available_width - prefix_length < 20:
+                # Terminal too narrow, no wrapping
+                wrapped_lines = [task.content]
+            else:
+                content_width = available_width - prefix_length
+                wrapped_lines = self.wrap_text(task.content, content_width)
+
             visible_line += len(wrapped_lines)
 
         return visible_line
