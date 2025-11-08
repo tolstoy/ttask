@@ -2,7 +2,7 @@
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Static
-from textual.containers import VerticalScroll
+from textual.containers import Container
 from textual.binding import Binding
 
 
@@ -45,7 +45,7 @@ class HelpScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose the help screen."""
-        with VerticalScroll(id="help_container", can_focus=True):
+        with Container(id="help_container"):
             yield Static("Keyboard Shortcuts", id="help_title")
             yield Static(self.get_help_text(), id="help_content")
 

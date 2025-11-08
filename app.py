@@ -28,18 +28,16 @@ class TaskJournalApp(App):
     }
 
     Header {
-        background: transparent;
+        background: #2d2d44;
         color: #0abdc6;
-        border: thick #0abdc6;
     }
 
     #date_header {
         height: 3;
         content-align: center middle;
-        background: transparent;
-        color: #0abdc6;
+        background: #0abdc6;
+        color: #ffffff;
         text-style: bold;
-        border: thick #0abdc6;
     }
 
     #task_list {
