@@ -170,9 +170,9 @@ class TaskListWidget(Static):
 
             # Render first line with full prefix
             if i == self.selected_index:
-                first_line = f"[#ff006e on #2d2d44]{marker} [#0abdc6]{fold_indicator}[/#0abdc6]{indent}{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
+                first_line = f"[#ff006e on #2d2d44]{marker} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
             else:
-                first_line = f"{marker} [#0abdc6]{fold_indicator}[/#0abdc6]{indent}{checkbox} {wrapped_lines[0]}"
+                first_line = f"{marker} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}"
 
             lines.append(first_line)
 
