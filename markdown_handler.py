@@ -43,19 +43,28 @@ class MarkdownHandler:
             # Return empty task list rather than crashing
             return daily_list
 
-        # Pattern to match task lines: optional indent, dash, checkbox, optional strikethrough, content
-        # Matches: "  - [ ] task" or "  - [x] ~~task~~"
-        task_pattern = re.compile(r'^(\s*)- \[([ x])\] (?:~~)?(.+?)(?:~~)?$', re.MULTILINE)
+        # Pattern to match task lines: optional indent, dash, checkbox, optional strikethrough, content, optional fold marker
+        # Matches: "  - [ ] task" or "  - [x] ~~task~~" or "  - [ ] task <!-- folded -->"
+        task_pattern = re.compile(r'^(\s*)- \[([ x])\] (?:~~)?(.+?)(?:~~)?(?:\s*<!--\s*folded\s*-->)?$', re.MULTILINE)
 
         for match in task_pattern.finditer(content):
             indent_str, checkbox, task_content = match.groups()
             indent_level = len(indent_str) // 2  # 2 spaces per indent level
             completed = checkbox.lower() == 'x'
 
+            # Check if the line contains the fold marker
+            folded = '<!-- folded -->' in match.group(0)
+
+            # Remove fold marker from content if present
+            task_content_clean = task_content.strip()
+            if task_content_clean.endswith('<!-- folded -->'):
+                task_content_clean = task_content_clean[:-len('<!-- folded -->')].strip()
+
             task = Task(
-                content=task_content.strip(),
+                content=task_content_clean,
                 completed=completed,
-                indent_level=indent_level
+                indent_level=indent_level,
+                folded=folded
             )
             daily_list.tasks.append(task)
 
@@ -91,7 +100,8 @@ class MarkdownHandler:
         new_task = Task(
             content=task.content,
             completed=False,  # Reset completion status
-            indent_level=task.indent_level
+            indent_level=task.indent_level,
+            folded=task.folded  # Preserve fold status
         )
         to_list.tasks.append(new_task)
 

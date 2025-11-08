@@ -94,9 +94,12 @@ class TaskListWidget(Static):
             return "[dim]No tasks for today. Press 'a' to add one.[/dim]"
 
         # Get available width for wrapping
-        # Default to 80 if size not available yet
+        # Use parent container's width minus padding (2 on each side = 4 total)
         try:
-            available_width = self.size.width if self.size else 80
+            if self.parent and hasattr(self.parent, 'size'):
+                available_width = self.parent.size.width - 4  # Account for padding
+            else:
+                available_width = 80
         except AttributeError:
             available_width = 80
 
@@ -170,8 +173,12 @@ class TaskListWidget(Static):
         skip_until_indent = None
 
         # Get available width for wrapping calculation
+        # Use parent container's width minus padding (2 on each side = 4 total)
         try:
-            available_width = self.size.width if self.size else 80
+            if self.parent and hasattr(self.parent, 'size'):
+                available_width = self.parent.size.width - 4  # Account for padding
+            else:
+                available_width = 80
         except AttributeError:
             available_width = 80
 
@@ -261,11 +268,12 @@ class TaskListWidget(Static):
 
                 # Only scroll if the line is outside the visible range
                 if line_number < visible_top:
-                    # Selected task is above viewport, scroll up to show it
+                    # Selected task is above viewport, scroll up to show it at top
                     container.scroll_to(y=line_number, animate=False)
                 elif line_number > visible_bottom:
-                    # Selected task is below viewport, scroll down to show it
-                    container.scroll_to(y=line_number, animate=False)
+                    # Selected task is below viewport, scroll down to show it at bottom
+                    new_scroll_y = line_number - viewport_height + 1
+                    container.scroll_to(y=max(0, new_scroll_y), animate=False)
                 # Otherwise, task is already visible, don't scroll
         except (AttributeError, RuntimeError) as e:
             # Scrolling failed (widget not ready or container issues)

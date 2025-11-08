@@ -30,7 +30,8 @@ class Task:
         checkbox = "[x]" if self.completed else "[ ]"
         prefix = "~~" if self.completed else ""
         suffix = "~~" if self.completed else ""
-        return f"{indent}- {checkbox} {prefix}{self.content}{suffix}"
+        fold_marker = " <!-- folded -->" if self.folded else ""
+        return f"{indent}- {checkbox} {prefix}{self.content}{suffix}{fold_marker}"
 
 
 @dataclass
