@@ -54,35 +54,49 @@ class TaskListWidget(Static):
         Returns:
             List of wrapped lines
         """
-        if width <= 0:
-            return [text]  # Can't wrap, return as-is
+        if width <= 10:  # Minimum reasonable width
+            return [text]  # Can't wrap meaningfully, return as-is
 
         # Simple word-based wrapping
-        # For now, we'll do a basic implementation that doesn't split markup tags
         words = text.split()
         if not words:
             return [""]
 
         lines = []
         current_line = ""
+        is_first_line = True
 
         for word in words:
-            # Calculate visible length (rough estimate, ignoring markup tags)
-            # This is simplified - a proper implementation would parse Rich markup
-            test_line = f"{current_line} {word}".strip()
+            # Calculate what the line would be with this word added
+            if current_line:
+                test_line = f"{current_line} {word}"
+            else:
+                # For continuation lines, include the indent
+                if is_first_line:
+                    test_line = word
+                else:
+                    test_line = indent + word
 
-            # Rough estimate: remove common markup tags for length calculation
+            # Calculate visible length (remove common markup tags)
             visible_test = test_line
             for tag in ["[strike]", "[/strike]", "[dim]", "[/dim]"]:
                 visible_test = visible_test.replace(tag, "")
 
-            if len(visible_test) <= width or not current_line:
+            # Check if adding this word would exceed width
+            if len(visible_test) <= width:
                 current_line = test_line
             else:
-                # Line would be too long, save current line and start new one
-                lines.append(current_line)
-                current_line = indent + word
+                # Line would be too long
+                if current_line:
+                    # Save current line and start new one
+                    lines.append(current_line)
+                    current_line = indent + word
+                    is_first_line = False
+                else:
+                    # Single word is too long, add it anyway
+                    current_line = test_line
 
+        # Add the last line
         if current_line:
             lines.append(current_line)
 
@@ -94,14 +108,17 @@ class TaskListWidget(Static):
             return "[dim]No tasks for today. Press 'a' to add one.[/dim]"
 
         # Get available width for wrapping
-        # Use parent container's width minus padding (2 on each side = 4 total)
+        # Try multiple sources for width, with fallback to conservative default
+        available_width = 80  # Conservative default
         try:
-            if self.parent and hasattr(self.parent, 'size'):
-                available_width = self.parent.size.width - 4  # Account for padding
-            else:
-                available_width = 80
-        except AttributeError:
-            available_width = 80
+            # Try to get console width from app
+            if hasattr(self, 'app') and hasattr(self.app, 'console'):
+                available_width = self.app.console.width - 4
+            # Fall back to parent container width
+            elif self.parent and hasattr(self.parent, 'size') and self.parent.size:
+                available_width = self.parent.size.width - 4
+        except (AttributeError, TypeError):
+            pass  # Use default
 
         lines = []
         skip_until_indent = None
@@ -139,10 +156,12 @@ class TaskListWidget(Static):
             content_width = max(20, available_width - prefix_length)
 
             # Wrap the content if needed
+            # Continuation lines get indent to align with content start
+            continuation_indent = " " * prefix_length
             wrapped_lines = self.wrap_text(
                 task.content,
                 content_width,
-                indent=" " * (prefix_length - 2)  # Indent continuation lines
+                indent=continuation_indent
             )
 
             # Apply strikethrough if completed
@@ -157,12 +176,12 @@ class TaskListWidget(Static):
 
             lines.append(first_line)
 
-            # Add continuation lines if any
+            # Add continuation lines if any (already indented by wrap_text)
             for continuation in wrapped_lines[1:]:
                 if i == self.selected_index:
-                    cont_line = f"[#ff006e on #2d2d44]  {continuation}[/#ff006e on #2d2d44]"
+                    cont_line = f"[#ff006e on #2d2d44]{continuation}[/#ff006e on #2d2d44]"
                 else:
-                    cont_line = f"  {continuation}"
+                    cont_line = continuation
                 lines.append(cont_line)
 
         return "\n".join(lines)
@@ -173,14 +192,17 @@ class TaskListWidget(Static):
         skip_until_indent = None
 
         # Get available width for wrapping calculation
-        # Use parent container's width minus padding (2 on each side = 4 total)
+        # Try multiple sources for width, with fallback to conservative default
+        available_width = 80  # Conservative default
         try:
-            if self.parent and hasattr(self.parent, 'size'):
-                available_width = self.parent.size.width - 4  # Account for padding
-            else:
-                available_width = 80
-        except AttributeError:
-            available_width = 80
+            # Try to get console width from app
+            if hasattr(self, 'app') and hasattr(self.app, 'console'):
+                available_width = self.app.console.width - 4
+            # Fall back to parent container width
+            elif self.parent and hasattr(self.parent, 'size') and self.parent.size:
+                available_width = self.parent.size.width - 4
+        except (AttributeError, TypeError):
+            pass  # Use default
 
         for i in range(len(self.daily_list.tasks)):
             task = self.daily_list.tasks[i]
