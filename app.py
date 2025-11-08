@@ -1,9 +1,10 @@
 """Main TUI application for task journal."""
 from datetime import date, timedelta
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input
+from textual.widgets import Header, Static, Input
 from textual.containers import Container, Vertical
 from textual.binding import Binding
+from textual.screen import Screen
 from textual import events
 from markdown_handler import MarkdownHandler
 from models import DailyTaskList, Task
@@ -201,6 +202,107 @@ class TaskListWidget(Static):
         return None
 
 
+class CenteredFooter(Static):
+    """Custom footer with centered content."""
+
+    def __init__(self):
+        super().__init__()
+        self.update("[dim]Press[/dim] [bold]H[/bold] [dim]for Help  •  [/dim][bold]Q[/bold] [dim]to Quit[/dim]")
+
+    DEFAULT_CSS = """
+    CenteredFooter {
+        background: $primary-darken-2;
+        color: $text;
+        dock: bottom;
+        height: 1;
+        text-align: center;
+    }
+    """
+
+
+class HelpScreen(Screen):
+    """Modal screen showing keyboard shortcuts."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("h", "dismiss", "Close", show=False),
+    ]
+
+    CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+
+    #help_container {
+        width: 80;
+        height: auto;
+        max-height: 90%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #help_title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #help_content {
+        height: auto;
+        overflow-y: auto;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        """Compose the help screen."""
+        with Container(id="help_container"):
+            yield Static("Keyboard Shortcuts", id="help_title")
+            yield Static(self.get_help_text(), id="help_content")
+
+    def get_help_text(self) -> str:
+        """Get formatted help text."""
+        return """[bold]Navigation[/bold]
+↑/↓ or j/k    Move selection up/down
+←/→ or h/l    Previous/next day
+Shift+←       Previous day with tasks (skip empty days)
+Shift+→       Next day with tasks (skip empty days)
+t             Jump to today
+
+[bold]Task Operations[/bold]
+a             Add new task
+              • On child task: adds sibling below at same indent
+              • On parent task: adds new parent at bottom
+e             Edit selected task
+Space or x    Toggle task completion
+d             Delete selected task
+Tab           Indent task (nest under previous)
+Shift+Tab     Unindent task
+
+[bold]Organization[/bold]
+f             Toggle fold/unfold (collapse/expand children)
+Shift+↑       Move task and children up (swaps with sibling)
+Shift+↓       Move task and children down (swaps with sibling)
+
+[bold]Advanced[/bold]
+m             Move task to another day
+              • Natural language: tomorrow, yesterday, monday
+              • Relative: +1, -1, +7, next week, last week
+              • Month + day: nov 10, december 25
+              • ISO format: YYYY-MM-DD
+
+[bold]General[/bold]
+h             Show this help
+q             Quit
+
+[dim]Press Esc or H to close this help[/dim]"""
+
+    def action_dismiss(self) -> None:
+        """Close the help screen."""
+        self.app.pop_screen()
+
+
 class TaskJournalApp(App):
     """A terminal-based daily task journal."""
 
@@ -237,37 +339,32 @@ class TaskJournalApp(App):
     Input {
         margin: 0 1;
     }
-
-    Footer {
-        background: $primary-darken-2;
-        height: auto;
-    }
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("a", "add_task", "Add"),
-        Binding("x", "toggle_complete", "Complete"),
-        Binding("space", "toggle_complete", "Complete"),
-        Binding("d", "delete_task", "Delete"),
+        Binding("q", "quit", "Quit", priority=True, show=False),
+        Binding("h", "show_help", "Help", show=False),
+        Binding("a", "add_task", "Add", show=False),
+        Binding("x", "toggle_complete", "Complete", show=False),
+        Binding("space", "toggle_complete", "Complete", show=False),
+        Binding("d", "delete_task", "Delete", show=False),
         Binding("j", "move_down", "Down", show=False),
         Binding("k", "move_up", "Up", show=False),
         Binding("down", "move_down", "Down", show=False),
         Binding("up", "move_up", "Up", show=False),
-        Binding("shift+up", "move_task_up", "S-↑ Move"),
-        Binding("shift+down", "move_task_down", "S-↓ Move"),
-        Binding("left", "prev_day", "Prev Day"),
-        Binding("right", "next_day", "Next Day"),
-        Binding("shift+left", "prev_non_empty_day", "S-← Skip"),
-        Binding("shift+right", "next_non_empty_day", "S-→ Skip"),
-        Binding("h", "prev_day", "Prev Day", show=False),
+        Binding("shift+up", "move_task_up", "S-↑ Move", show=False),
+        Binding("shift+down", "move_task_down", "S-↓ Move", show=False),
+        Binding("left", "prev_day", "Prev Day", show=False),
+        Binding("right", "next_day", "Next Day", show=False),
+        Binding("shift+left", "prev_non_empty_day", "S-← Skip", show=False),
+        Binding("shift+right", "next_non_empty_day", "S-→ Skip", show=False),
         Binding("l", "next_day", "Next Day", show=False),
-        Binding("t", "today", "Today"),
-        Binding("tab", "indent", "Indent"),
-        Binding("shift+tab", "unindent", "Unindent"),
-        Binding("f", "toggle_fold", "Fold"),
-        Binding("m", "move_task", "Move"),
-        Binding("e", "edit_task", "Edit"),
+        Binding("t", "today", "Today", show=False),
+        Binding("tab", "indent", "Indent", show=False),
+        Binding("shift+tab", "unindent", "Unindent", show=False),
+        Binding("f", "toggle_fold", "Fold", show=False),
+        Binding("m", "move_task", "Move", show=False),
+        Binding("e", "edit_task", "Edit", show=False),
     ]
 
     def __init__(self):
@@ -291,7 +388,7 @@ class TaskJournalApp(App):
             id="task_list"
         )
         yield Container(id="input_container")
-        yield Footer()
+        yield CenteredFooter()
 
     def on_mount(self) -> None:
         """Set up the app after mounting."""
@@ -590,6 +687,10 @@ class TaskJournalApp(App):
         self.daily_list = self.handler.load_tasks(self.current_date)
         self.update_date_header()
         self.refresh_task_list()
+
+    def action_show_help(self):
+        """Show the help screen."""
+        self.push_screen(HelpScreen())
 
     def parse_natural_date(self, input_str: str, from_date: date) -> date | None:
         """Parse natural language date input.
