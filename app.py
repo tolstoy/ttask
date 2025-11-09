@@ -651,8 +651,8 @@ class TaskJournalApp(App):
                 event.prevent_default()
             return
 
-        # Handle Space - context-aware based on selection mode
-        if event.key == "space":
+        # Handle Space and x - context-aware based on selection mode
+        if event.key == "space" or event.key == "x":
             if self.selection_mode:
                 self.action_toggle_task_selection()
             else:

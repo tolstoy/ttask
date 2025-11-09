@@ -63,10 +63,19 @@ a             Add new task
               • On child task: adds sibling below at same indent
               • On parent task: adds new parent at bottom
 e             Edit selected task
-Space or x    Toggle task completion
-d             Delete selected task
+Space or x    Toggle task completion (or selection in visual mode)
+d             Delete selected task (or all selected in visual mode)
 Tab           Indent task (nest under previous)
 Shift+Tab     Unindent task
+
+[bold]Visual Selection Mode[/bold]
+v             Enter/exit visual selection mode
+Space or x    Toggle selection of task (and all children)
+              • Selected tasks show ✓ marker
+              • Selecting parent auto-selects children
+d             Delete all selected tasks
+m             Move all selected tasks to another day
+              • Selection mode exits automatically on day change
 
 [bold]Organization[/bold]
 f             Toggle fold/unfold (collapse/expand children)
