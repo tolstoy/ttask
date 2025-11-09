@@ -45,7 +45,7 @@ class HelpScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose the help screen."""
-        with VerticalScroll(id="help_container", can_focus=True):
+        with VerticalScroll(id="help_container"):
             yield Static("Keyboard Shortcuts", id="help_title")
             yield Static(self.get_help_text(), id="help_content")
 
