@@ -8,10 +8,12 @@ from models import DailyTaskList, Task
 class TaskListWidget(Static):
     """Widget to display the list of tasks."""
 
-    def __init__(self, daily_list: DailyTaskList):
+    def __init__(self, daily_list: DailyTaskList, selection_mode: bool = False, selected_task_indices: set = None):
         super().__init__()
         self.daily_list = daily_list
         self.selected_index = 0
+        self.selection_mode = selection_mode
+        self.selected_task_indices = selected_task_indices or set()
 
     def has_children(self, index: int) -> bool:
         """Check if task at index has children (next task has higher indent)."""
@@ -120,6 +122,13 @@ class TaskListWidget(Static):
             # Selection marker
             marker = ">" if i == self.selected_index else " "
 
+            # Selection indicator (✓ for selected tasks in selection mode)
+            selection_indicator = ""
+            if self.selection_mode and i in self.selected_task_indices:
+                selection_indicator = "✓"
+            else:
+                selection_indicator = " "
+
             # Add fold indicator - always use 2 chars for consistent alignment
             fold_indicator = "  "  # Default: two spaces
             if self.has_children(i):
@@ -135,8 +144,8 @@ class TaskListWidget(Static):
             checkbox = "\\[x]" if task.completed else "\\[ ]"
 
             # Calculate prefix length (visible characters before content)
-            # marker (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
-            prefix_length = 1 + 1 + len(indent) + 2 + 3 + 1
+            # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
+            prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
 
             # Calculate available width for content
             # Ensure we have at least 20 chars for content, otherwise don't wrap
@@ -154,9 +163,9 @@ class TaskListWidget(Static):
 
             # Render first line with full prefix
             if i == self.selected_index:
-                first_line = f"[#ff006e on #2d2d44]{marker} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
+                first_line = f"[#ff006e on #2d2d44]{marker}{selection_indicator} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
             else:
-                first_line = f"{marker} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}"
+                first_line = f"{marker}{selection_indicator} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}"
 
             lines.append(first_line)
 
@@ -216,7 +225,8 @@ class TaskListWidget(Static):
             # Calculate how many lines this task occupies (accounting for wrapping)
             # Must match the logic in render() method
             indent = "  " * task.indent_level
-            prefix_length = 1 + 1 + len(indent) + 2 + 3 + 1
+            # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
+            prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
 
             # Same width validation as render()
             if available_width - prefix_length < 20:
