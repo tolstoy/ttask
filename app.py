@@ -19,6 +19,7 @@ from ui.help_screen import HelpScreen
 from ui.statistics_screen import StatisticsScreen
 from ui.widgets import CenteredFooter
 from ui.task_list_widget import TaskListWidget
+from utils.time_utils import parse_time_string
 
 
 class TaskJournalApp(App):
@@ -178,6 +179,31 @@ class TaskJournalApp(App):
         date_str = self.current_date.strftime("%A, %B %d, %Y")
         header.update(date_str)
 
+    def _format_footer_stats(self, daily_score, streak: int) -> str:
+        """Format the footer statistics display.
+
+        Args:
+            daily_score: Daily score object with task statistics
+            streak: Current streak count
+
+        Returns:
+            Formatted footer string
+        """
+        # Format score display
+        score_str = f"{int(daily_score.total_score)}pts"
+        if daily_score.total_score > 0:
+            score_str = f"[green]{score_str}[/green]"
+        elif daily_score.total_score < 0:
+            score_str = f"[red]{score_str}[/red]"
+
+        # Format streak display
+        streak_str = f"[yellow]{streak}[/yellow]d" if streak > 0 else "0d"
+
+        # Efficiency percentage (lower is better)
+        efficiency_pct = int(daily_score.efficiency_ratio * 100)
+
+        return f"Score: {score_str} [dim]•[/dim] Streak: {streak_str} [dim]•[/dim] {daily_score.tasks_completed} tasks [dim]•[/dim] Eff: {efficiency_pct}% [dim]•[/dim] [bold]H[/bold] [dim]Help[/dim] [bold]Q[/bold] [dim]Quit[/dim]"
+
     def update_footer(self) -> None:
         """Update the footer with selection mode status and time tracking stats."""
         try:
@@ -196,23 +222,33 @@ class TaskJournalApp(App):
 
             # Show stats if we have any completed tasks with estimates, otherwise show help hints
             if daily_score.tasks_completed > 0 and daily_score.total_estimated_minutes > 0:
-                # Format score display
-                score_str = f"{int(daily_score.total_score)}pts"
-                if daily_score.total_score > 0:
-                    score_str = f"[green]{score_str}[/green]"
-                elif daily_score.total_score < 0:
-                    score_str = f"[red]{score_str}[/red]"
-
-                # Format streak display
-                streak_str = f"[yellow]{streak}[/yellow]d" if streak > 0 else "0d"
-
-                # Efficiency percentage (lower is better)
-                efficiency_pct = int(daily_score.efficiency_ratio * 100)
-
-                footer.update(f"Score: {score_str} [dim]•[/dim] Streak: {streak_str} [dim]•[/dim] {daily_score.tasks_completed} tasks [dim]•[/dim] Eff: {efficiency_pct}% [dim]•[/dim] [bold]H[/bold] [dim]Help[/dim] [bold]Q[/bold] [dim]Quit[/dim]")
+                footer.update(self._format_footer_stats(daily_score, streak))
             else:
                 # No stats yet, show helpful hints
                 footer.update("[dim]Press[/dim] [bold]H[/bold] [dim]for Help[/dim] [dim]•[/dim] [bold]Q[/bold] [dim]to Quit[/dim]")
+
+    def _find_nearest_visible_task(self, task_widget, current_index: int) -> int:
+        """Find the nearest visible task when current selection is hidden.
+
+        Args:
+            task_widget: The task list widget
+            current_index: Current selected index
+
+        Returns:
+            Index of nearest visible task, or 0 if none found
+        """
+        # Try going up first
+        for i in range(current_index - 1, -1, -1):
+            if task_widget.is_task_visible(i):
+                return i
+
+        # If not found going up, try going down
+        for i in range(current_index + 1, len(self.daily_list.tasks)):
+            if task_widget.is_task_visible(i):
+                return i
+
+        # If still not found, default to 0
+        return 0
 
     def refresh_task_list(self) -> None:
         """Refresh the task list widget."""
@@ -232,25 +268,9 @@ class TaskJournalApp(App):
 
             # If the selected task is now hidden (folded), find nearest visible task
             if not task_widget.is_task_visible(task_widget.selected_index):
-                # Try going up first
-                found = False
-                for i in range(task_widget.selected_index - 1, -1, -1):
-                    if task_widget.is_task_visible(i):
-                        task_widget.selected_index = i
-                        found = True
-                        break
-
-                # If not found going up, try going down
-                if not found:
-                    for i in range(task_widget.selected_index + 1, len(self.daily_list.tasks)):
-                        if task_widget.is_task_visible(i):
-                            task_widget.selected_index = i
-                            found = True
-                            break
-
-                # If still not found, default to 0
-                if not found:
-                    task_widget.selected_index = 0
+                task_widget.selected_index = self._find_nearest_visible_task(
+                    task_widget, task_widget.selected_index
+                )
 
         # Force a complete refresh
         task_widget.refresh(layout=True)
@@ -289,7 +309,19 @@ class TaskJournalApp(App):
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
         if task:
+            # Toggle completion status
             task.toggle_complete()
+
+            # Reorder task based on new completion status
+            from business_logic.task_sorter import TaskSorter
+            new_index = TaskSorter.reorder_task_on_completion(
+                self.daily_list.tasks, task_widget.selected_index
+            )
+
+            # Update selection to follow the task
+            if new_index is not None:
+                task_widget.selected_index = new_index
+
             self.save_and_refresh()
 
     def action_delete_task(self) -> None:
@@ -337,27 +369,39 @@ class TaskJournalApp(App):
         if len(self.undo_stack) > self.max_undo_depth:
             self.undo_stack.pop(0)
 
+    def _can_undo(self) -> bool:
+        """Check if undo is available for the current date.
+
+        Returns:
+            True if there are undo operations available for the current date
+        """
+        if not self.undo_stack:
+            return False
+        # Only allow undo if we're on the same date as the operation
+        _, _, operation_date = self.undo_stack[-1]
+        return operation_date == self.current_date
+
+    def _perform_undo_delete(self, deleted_tasks) -> None:
+        """Restore deleted tasks from undo data.
+
+        Args:
+            deleted_tasks: List of (index, task) tuples to restore
+        """
+        # Restore deleted tasks (data is list of (index, task) tuples)
+        # Sort by index to restore in correct order
+        for idx, task in sorted(deleted_tasks):
+            self.daily_list.tasks.insert(idx, task)
+
     def action_undo(self) -> None:
         """Undo the last delete operation."""
-        if not self.undo_stack:
+        if not self._can_undo():
             return
 
         # Get the last operation
-        operation, data, operation_date = self.undo_stack[-1]
-
-        # Only undo if we're on the same date as the operation
-        if operation_date != self.current_date:
-            return
+        operation, data, _ = self.undo_stack.pop()
 
         if operation == 'delete':
-            # Remove from undo stack
-            self.undo_stack.pop()
-
-            # Restore deleted tasks (data is list of (index, task) tuples)
-            # Sort by index to restore in correct order
-            for idx, task in sorted(data):
-                self.daily_list.tasks.insert(idx, task)
-
+            self._perform_undo_delete(data)
             self.save_and_refresh()
 
     def action_indent(self) -> None:
@@ -482,12 +526,16 @@ class TaskJournalApp(App):
         task_widget.selected_index = current_start + len(next_group_tasks)
         self.save_and_refresh()
 
-    def action_next_day(self) -> None:
-        """Navigate to next day."""
+    def _navigate_to_date(self, new_date: date) -> None:
+        """Navigate to a new date with save/load/sync pattern.
+
+        Args:
+            new_date: The date to navigate to
+        """
         # Save current day's tasks before switching (preserves timer state in file)
         self.save_current_tasks()
 
-        self.current_date += timedelta(days=1)
+        self.current_date = new_date
         self.daily_list = self.handler.load_tasks(self.current_date)
 
         # Sync timer state with newly loaded day
@@ -498,78 +546,30 @@ class TaskJournalApp(App):
         self.selected_task_indices.clear()
         self.update_date_header()
         self.refresh_task_list()
+
+    def action_next_day(self) -> None:
+        """Navigate to next day."""
+        self._navigate_to_date(self.current_date + timedelta(days=1))
 
     def action_prev_day(self) -> None:
         """Navigate to previous day."""
-        # Save current day's tasks before switching (preserves timer state in file)
-        self.save_current_tasks()
-
-        self.current_date -= timedelta(days=1)
-        self.daily_list = self.handler.load_tasks(self.current_date)
-
-        # Sync timer state with newly loaded day
-        self.time_tracker.sync_timer_with_task_list(self.daily_list)
-
-        # Exit selection mode when changing days
-        self.selection_mode = False
-        self.selected_task_indices.clear()
-        self.update_date_header()
-        self.refresh_task_list()
+        self._navigate_to_date(self.current_date - timedelta(days=1))
 
     def action_prev_non_empty_day(self) -> None:
         """Navigate to previous non-empty day."""
         prev_date = self.date_navigator.find_prev_non_empty_day(self.current_date)
         if prev_date:
-            # Save current day's tasks before switching (preserves timer state in file)
-            self.save_current_tasks()
-
-            self.current_date = prev_date
-            self.daily_list = self.handler.load_tasks(self.current_date)
-
-            # Sync timer state with newly loaded day
-            self.time_tracker.sync_timer_with_task_list(self.daily_list)
-
-            # Exit selection mode when changing days
-            self.selection_mode = False
-            self.selected_task_indices.clear()
-            self.update_date_header()
-            self.refresh_task_list()
+            self._navigate_to_date(prev_date)
 
     def action_next_non_empty_day(self) -> None:
         """Navigate to next non-empty day."""
         next_date = self.date_navigator.find_next_non_empty_day(self.current_date)
         if next_date:
-            # Save current day's tasks before switching (preserves timer state in file)
-            self.save_current_tasks()
-
-            self.current_date = next_date
-            self.daily_list = self.handler.load_tasks(self.current_date)
-
-            # Sync timer state with newly loaded day
-            self.time_tracker.sync_timer_with_task_list(self.daily_list)
-
-            # Exit selection mode when changing days
-            self.selection_mode = False
-            self.selected_task_indices.clear()
-            self.update_date_header()
-            self.refresh_task_list()
+            self._navigate_to_date(next_date)
 
     def action_today(self) -> None:
         """Navigate to today."""
-        # Save current day's tasks before switching (preserves timer state in file)
-        self.save_current_tasks()
-
-        self.current_date = date.today()
-        self.daily_list = self.handler.load_tasks(self.current_date)
-
-        # Sync timer state with newly loaded day
-        self.time_tracker.sync_timer_with_task_list(self.daily_list)
-
-        # Exit selection mode when changing days
-        self.selection_mode = False
-        self.selected_task_indices.clear()
-        self.update_date_header()
-        self.refresh_task_list()
+        self._navigate_to_date(date.today())
 
     def action_show_help(self) -> None:
         """Show the help screen."""
@@ -663,56 +663,6 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
-    @staticmethod
-    def parse_time_string(time_str: str) -> Optional[int]:
-        """
-        Parse a time string into seconds.
-
-        Supports formats:
-        - Plain number: "30" → 30 minutes → 1800 seconds
-        - Seconds: "90s" or "90sec" → 90 seconds
-        - Minutes: "30m" or "30min" → 1800 seconds
-        - Hours: "2h" → 7200 seconds
-        - Combined: "1h30m15s" → 5415 seconds
-        - Decimal: "1.5h" → 5400 seconds, "2.5m" → 150 seconds
-
-        Returns:
-            Number of seconds, or None if parse fails
-        """
-        import re
-
-        time_str = time_str.strip().lower()
-        if not time_str:
-            return None
-
-        # Try plain number first (assumes minutes, convert to seconds)
-        try:
-            return int(time_str) * 60
-        except ValueError:
-            pass
-
-        # Try to parse with units
-        # Match patterns like: 1h30m15s, 2h, 30m, 90s, 1.5h, etc.
-        # Pattern: optional hours, optional minutes, optional seconds
-        pattern = r'(?:(\d+(?:\.\d+)?)(?:h|hr|hour|hours))?\s*(?:(\d+(?:\.\d+)?)(?:m|min|minutes?))?\s*(?:(\d+(?:\.\d+)?)(?:s|sec|seconds?))?'
-        match = re.match(pattern, time_str)
-
-        if match:
-            hours_str, minutes_str, seconds_str = match.groups()
-            total_seconds = 0.0
-
-            if hours_str:
-                total_seconds += float(hours_str) * 3600
-            if minutes_str:
-                total_seconds += float(minutes_str) * 60
-            if seconds_str:
-                total_seconds += float(seconds_str)
-
-            if total_seconds > 0:
-                return int(total_seconds)
-
-        return None
-
     def action_move_task(self) -> None:
         """Move task(s) and all their children to another day."""
         task_widget = self.query_one(TaskListWidget)
@@ -751,115 +701,134 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
+    def _handle_add_task_input(self, value: str) -> None:
+        """Handle input for adding a new task."""
+        if value:
+            self.daily_list.add_task(
+                value,
+                indent_level=self.new_task_indent_level,
+                index=self.new_task_insert_index
+            )
+            self.save_and_refresh()
+        self.adding_task = False
+        # Reset insert position and indent
+        self.new_task_insert_index = None
+        self.new_task_indent_level = 0
+
+    def _handle_edit_task_input(self, value: str) -> None:
+        """Handle input for editing an existing task."""
+        if value:
+            task_widget = self.query_one(TaskListWidget)
+            task = task_widget.get_selected_task()
+            if task:
+                task.content = value
+                self.save_and_refresh()
+        self.editing_task = False
+
+    def _handle_move_task_input(self, value: str) -> None:
+        """Handle input for moving task(s) to another date."""
+        if value:
+            # Parse date input using natural language parser
+            target_date = NaturalDateParser.parse(value, self.current_date)
+
+            if target_date:
+                try:
+                    # Check if we're moving selected tasks or a single group
+                    if self.move_group_start is None:
+                        # Moving selected tasks (selection mode)
+                        tasks_to_move = [self.daily_list.tasks[i] for i in sorted(self.selected_task_indices)
+                                       if i < len(self.daily_list.tasks)]
+
+                        for task in tasks_to_move:
+                            self.handler.move_task_to_date(
+                                task,
+                                self.current_date,
+                                target_date
+                            )
+
+                        # Remove selected tasks from current day (in reverse order)
+                        for i in sorted(self.selected_task_indices, reverse=True):
+                            if i < len(self.daily_list.tasks):
+                                self.daily_list.remove_task(i)
+
+                        # Clear selection after moving
+                        self.selected_task_indices.clear()
+                    else:
+                        # Moving single task group (normal mode)
+                        tasks_to_move = self.daily_list.tasks[self.move_group_start:self.move_group_end + 1]
+
+                        for task in tasks_to_move:
+                            self.handler.move_task_to_date(
+                                task,
+                                self.current_date,
+                                target_date
+                            )
+
+                        # Remove all tasks in the group from current day (in reverse)
+                        for i in range(self.move_group_end, self.move_group_start - 1, -1):
+                            self.daily_list.remove_task(i)
+
+                    self.save_and_refresh()
+
+                except (ValueError, TypeError, IOError) as e:
+                    # Error moving task (invalid date, file I/O error, etc.)
+                    # Silently cancel the operation - task remains in place
+                    pass
+
+        self.moving_task = False
+        self.task_to_move = None
+        self.move_group_start = None
+        self.move_group_end = None
+
+    def _handle_estimate_input(self, value: str) -> None:
+        """Handle input for setting task time estimate."""
+        if value:
+            seconds = parse_time_string(value)
+            if seconds is not None and 0 <= self.estimate_task_index < len(self.daily_list.tasks):
+                task = self.daily_list.tasks[self.estimate_task_index]
+                task.estimated_seconds = seconds
+                self.save_and_refresh()
+        self.setting_estimate = False
+        self.estimate_task_index = None
+
+    def _handle_add_time_input(self, value: str) -> None:
+        """Handle input for manually adding time to a task."""
+        if value:
+            seconds = parse_time_string(value)
+            if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
+                task = self.daily_list.tasks[self.time_task_index]
+                self.time_tracker.add_manual_time(task, seconds)
+                self.save_and_refresh()
+        self.adding_time = False
+        self.time_task_index = None
+
+    def _handle_subtract_time_input(self, value: str) -> None:
+        """Handle input for manually subtracting time from a task."""
+        if value:
+            seconds = parse_time_string(value)
+            if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
+                task = self.daily_list.tasks[self.time_task_index]
+                self.time_tracker.add_manual_time(task, -seconds)  # Negative to subtract
+                self.save_and_refresh()
+        self.subtracting_time = False
+        self.time_task_index = None
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle input submission."""
+        """Handle input submission by dispatching to appropriate handler."""
         value = event.value.strip()
 
         if self.adding_task:
-            if value:
-                self.daily_list.add_task(
-                    value,
-                    indent_level=self.new_task_indent_level,
-                    index=self.new_task_insert_index
-                )
-                self.save_and_refresh()
-            self.adding_task = False
-            # Reset insert position and indent
-            self.new_task_insert_index = None
-            self.new_task_indent_level = 0
-
+            self._handle_add_task_input(value)
         elif self.editing_task:
-            if value:
-                task_widget = self.query_one(TaskListWidget)
-                task = task_widget.get_selected_task()
-                if task:
-                    task.content = value
-                    self.save_and_refresh()
-            self.editing_task = False
-
+            self._handle_edit_task_input(value)
         elif self.moving_task:
-            if value:
-                # Parse date input using natural language parser
-                target_date = NaturalDateParser.parse(value, self.current_date)
-
-                if target_date:
-                    try:
-                        # Check if we're moving selected tasks or a single group
-                        if self.move_group_start is None:
-                            # Moving selected tasks (selection mode)
-                            tasks_to_move = [self.daily_list.tasks[i] for i in sorted(self.selected_task_indices)
-                                           if i < len(self.daily_list.tasks)]
-
-                            for task in tasks_to_move:
-                                self.handler.move_task_to_date(
-                                    task,
-                                    self.current_date,
-                                    target_date
-                                )
-
-                            # Remove selected tasks from current day (in reverse order)
-                            for i in sorted(self.selected_task_indices, reverse=True):
-                                if i < len(self.daily_list.tasks):
-                                    self.daily_list.remove_task(i)
-
-                            # Clear selection after moving
-                            self.selected_task_indices.clear()
-                        else:
-                            # Moving single task group (normal mode)
-                            tasks_to_move = self.daily_list.tasks[self.move_group_start:self.move_group_end + 1]
-
-                            for task in tasks_to_move:
-                                self.handler.move_task_to_date(
-                                    task,
-                                    self.current_date,
-                                    target_date
-                                )
-
-                            # Remove all tasks in the group from current day (in reverse)
-                            for i in range(self.move_group_end, self.move_group_start - 1, -1):
-                                self.daily_list.remove_task(i)
-
-                        self.save_and_refresh()
-
-                    except (ValueError, TypeError, IOError) as e:
-                        # Error moving task (invalid date, file I/O error, etc.)
-                        # Silently cancel the operation - task remains in place
-                        pass
-
-            self.moving_task = False
-            self.task_to_move = None
-            self.move_group_start = None
-            self.move_group_end = None
-
+            self._handle_move_task_input(value)
         elif self.setting_estimate:
-            if value:
-                seconds = self.parse_time_string(value)
-                if seconds is not None and 0 <= self.estimate_task_index < len(self.daily_list.tasks):
-                    task = self.daily_list.tasks[self.estimate_task_index]
-                    task.estimated_seconds = seconds
-                    self.save_and_refresh()
-            self.setting_estimate = False
-            self.estimate_task_index = None
-
+            self._handle_estimate_input(value)
         elif self.adding_time:
-            if value:
-                seconds = self.parse_time_string(value)
-                if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
-                    task = self.daily_list.tasks[self.time_task_index]
-                    self.time_tracker.add_manual_time(task, seconds)
-                    self.save_and_refresh()
-            self.adding_time = False
-            self.time_task_index = None
-
+            self._handle_add_time_input(value)
         elif self.subtracting_time:
-            if value:
-                seconds = self.parse_time_string(value)
-                if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
-                    task = self.daily_list.tasks[self.time_task_index]
-                    self.time_tracker.add_manual_time(task, -seconds)  # Negative to subtract
-                    self.save_and_refresh()
-            self.subtracting_time = False
-            self.time_task_index = None
+            self._handle_subtract_time_input(value)
 
         # Remove input widget
         event.input.remove()
@@ -926,6 +895,28 @@ class TaskJournalApp(App):
         # Reset footer after 3 seconds
         self.set_timer(3.0, self.update_footer)
 
+    def _format_estimate_display(self, estimated_seconds: Optional[int]) -> str:
+        """Format estimated time for display in placeholder text.
+
+        Args:
+            estimated_seconds: Estimated time in seconds, or None
+
+        Returns:
+            Formatted string showing current estimate, or empty string
+        """
+        if not estimated_seconds:
+            return ""
+
+        if estimated_seconds < 60:
+            return f" [current: {estimated_seconds}s]"
+        else:
+            mins = estimated_seconds // 60
+            secs = estimated_seconds % 60
+            if secs > 0:
+                return f" [current: {mins}m{secs}s]"
+            else:
+                return f" [current: {mins}m]"
+
     def action_set_estimate(self) -> None:
         """Set or edit estimate for the selected task."""
         if not self.daily_list.tasks:
@@ -938,17 +929,7 @@ class TaskJournalApp(App):
         container = self.query_one("#input_container")
 
         # Format current estimate for display
-        current_est = ""
-        if task.estimated_seconds:
-            if task.estimated_seconds < 60:
-                current_est = f" [current: {task.estimated_seconds}s]"
-            else:
-                mins = task.estimated_seconds // 60
-                secs = task.estimated_seconds % 60
-                if secs > 0:
-                    current_est = f" [current: {mins}m{secs}s]"
-                else:
-                    current_est = f" [current: {mins}m]"
+        current_est = self._format_estimate_display(task.estimated_seconds)
 
         input_widget = Input(
             placeholder=f"Enter estimate (e.g., 30, 90s, 1h30m){current_est}" if current_est else "Enter estimate (e.g., 30, 90s, 1h30m)"
@@ -1000,6 +981,18 @@ class TaskJournalApp(App):
         streak = self.scoring_system.get_streak(self.current_date)
         self.push_screen(StatisticsScreen(daily_score, streak, self.scoring_system))
 
+    def _clear_input_state(self) -> None:
+        """Clear all input mode state flags."""
+        self.adding_task = False
+        self.editing_task = False
+        self.moving_task = False
+        self.task_to_move = None
+        self.setting_estimate = False
+        self.adding_time = False
+        self.subtracting_time = False
+        self.estimate_task_index = None
+        self.time_task_index = None
+
     def on_key(self, event: events.Key) -> None:
         """Handle special keys."""
         # Check if we're in an input widget - if so, don't intercept
@@ -1007,15 +1000,7 @@ class TaskJournalApp(App):
         if isinstance(focused, Input):
             if event.key == "escape":
                 focused.remove()
-                self.adding_task = False
-                self.editing_task = False
-                self.moving_task = False
-                self.task_to_move = None
-                self.setting_estimate = False
-                self.adding_time = False
-                self.subtracting_time = False
-                self.estimate_task_index = None
-                self.time_task_index = None
+                self._clear_input_state()
                 event.prevent_default()
             return
 
@@ -1048,15 +1033,7 @@ class TaskJournalApp(App):
             if inputs:
                 for input_widget in inputs:
                     input_widget.remove()
-                self.adding_task = False
-                self.editing_task = False
-                self.moving_task = False
-                self.task_to_move = None
-                self.setting_estimate = False
-                self.adding_time = False
-                self.subtracting_time = False
-                self.estimate_task_index = None
-                self.time_task_index = None
+                self._clear_input_state()
 
 
 def main():

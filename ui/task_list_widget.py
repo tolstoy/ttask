@@ -3,6 +3,7 @@ import re
 from typing import Optional, TYPE_CHECKING
 from textual.widgets import Static
 from models import DailyTaskList, Task
+from utils.time_utils import format_time
 
 if TYPE_CHECKING:
     from business_logic.time_tracker import TimeTracker
@@ -20,17 +21,6 @@ class TaskListWidget(Static):
         self.selected_task_indices = selected_task_indices or set()
         self.time_tracker = time_tracker
         self.scoring_system = scoring_system
-
-    @staticmethod
-    def _format_time(seconds: int) -> str:
-        """Format seconds into readable string."""
-        if seconds < 60:
-            return f"{seconds}s"
-        mins = seconds // 60
-        secs = seconds % 60
-        if secs > 0:
-            return f"{mins}m{secs}s"
-        return f"{mins}m"
 
     def format_time_display(self, task: Task, task_index: int) -> str:
         """
@@ -60,11 +50,11 @@ class TaskListWidget(Static):
 
             # Show previously accumulated time if any
             if task.actual_seconds > 0:
-                elapsed_str = f"{elapsed_minutes}:{elapsed_secs:02d} (+{self._format_time(task.actual_seconds)})"
+                elapsed_str = f"{elapsed_minutes}:{elapsed_secs:02d} (+{format_time(task.actual_seconds)})"
             else:
                 elapsed_str = f"{elapsed_minutes}:{elapsed_secs:02d}"
 
-            est_str = self._format_time(task.estimated_seconds) if task.estimated_seconds else "??"
+            est_str = format_time(task.estimated_seconds) if task.estimated_seconds else "??"
             return f" [yellow]\\[{elapsed_str}/{est_str}][/yellow]"
 
         # If task is completed and has estimate, show score
@@ -72,8 +62,8 @@ class TaskListWidget(Static):
             score = self.scoring_system.calculate_task_score(task)
             score_str = f"+{int(score)}" if score >= 0 else f"{int(score)}"
 
-            est_str = self._format_time(task.estimated_seconds)
-            act_str = self._format_time(task.actual_seconds)
+            est_str = format_time(task.estimated_seconds)
+            act_str = format_time(task.actual_seconds)
 
             if task.actual_seconds <= task.estimated_seconds:
                 # Beat the estimate
@@ -85,9 +75,9 @@ class TaskListWidget(Static):
         # Just has estimate or actual time
         parts = []
         if task.estimated_seconds is not None:
-            parts.append(f"est:{self._format_time(task.estimated_seconds)}")
+            parts.append(f"est:{format_time(task.estimated_seconds)}")
         if task.actual_seconds > 0:
-            parts.append(f"act:{self._format_time(task.actual_seconds)}")
+            parts.append(f"act:{format_time(task.actual_seconds)}")
 
         if parts:
             return f" [dim]\\[{', '.join(parts)}][/dim]"
@@ -124,6 +114,53 @@ class TaskListWidget(Static):
                 break
 
         return True
+
+    def should_show_divider_before(self, index: int) -> bool:
+        """Check if a divider should be shown before this task.
+
+        A divider is shown when:
+        - This is the first completed task at this indent level
+        - Within the current parent context (or top-level if no parent)
+        - There are incomplete tasks before it at the same level
+        """
+        if index >= len(self.daily_list.tasks):
+            return False
+
+        task = self.daily_list.tasks[index]
+
+        # Only show divider before completed tasks
+        if not task.completed:
+            return False
+
+        # Find parent context
+        parent_index = None
+        for i in range(index - 1, -1, -1):
+            if self.daily_list.tasks[i].indent_level < task.indent_level:
+                parent_index = i
+                break
+
+        # Look backwards for tasks at the same indent level
+        for i in range(index - 1, -1, -1):
+            prev_task = self.daily_list.tasks[i]
+
+            # Stop if we reach a parent level (lower indent)
+            if prev_task.indent_level < task.indent_level:
+                # We've reached parent level without finding a same-level task
+                # This means we're the first task at this level - no divider
+                return False
+
+            # Only consider tasks at the same indent level
+            if prev_task.indent_level == task.indent_level:
+                # Found a same-level task before us
+                if not prev_task.completed:
+                    # Found an incomplete task at same level - show divider!
+                    return True
+                else:
+                    # Found another completed task - no divider (already past it)
+                    return False
+
+        # No same-level tasks found before us - no divider
+        return False
 
     def wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text to fit within width, preserving Rich markup.
@@ -197,6 +234,28 @@ class TaskListWidget(Static):
                     continue
                 else:
                     skip_until_indent = None
+
+            # Check if we need to show a divider before this task
+            if self.should_show_divider_before(i):
+                # Create divider with appropriate indentation
+                indent = "  " * task.indent_level
+
+                if task.indent_level == 0:
+                    # Main divider (top-level): thicker line, standard indentation
+                    # marker (1) + selection_indicator (1) + space (1) + indent
+                    divider_prefix = "   " + indent
+                    prefix_length = len(divider_prefix)
+                    divider_width = max(10, available_width - prefix_length)
+                    divider_line = f"{divider_prefix}[dim]{'━' * divider_width}[/dim]"
+                else:
+                    # Child divider: align with checkbox position
+                    # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2)
+                    divider_prefix = "   " + indent + "  "
+                    prefix_length = len(divider_prefix)
+                    divider_width = max(10, available_width - prefix_length)
+                    divider_line = f"{divider_prefix}[dim]{'─' * divider_width}[/dim]"
+
+                lines.append(divider_line)
 
             # Selection marker
             marker = ">" if i == self.selected_index else " "
@@ -296,6 +355,10 @@ class TaskListWidget(Static):
                     continue
                 else:
                     skip_until_indent = None
+
+            # Check if we need to account for a divider before this task
+            if self.should_show_divider_before(i):
+                visible_line += 1  # Divider takes up one line
 
             # Check if this task has children and is folded
             if self.has_children(i) and task.folded:
