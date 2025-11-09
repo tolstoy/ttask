@@ -162,6 +162,58 @@ class TaskListWidget(Static):
         # No same-level tasks found before us - no divider
         return False
 
+    def get_vertical_lines(self, index: int) -> list:
+        """Get vertical line characters showing parent-child hierarchy.
+
+        For each indent level before the current task, determines if a vertical
+        line (│) should be shown to indicate we're still within that parent's children.
+
+        Args:
+            index: Index of the task to get vertical lines for
+
+        Returns:
+            List of strings, one per indent level, each being "   │" or "    " (4 chars)
+            Example: ["   │", "   │"] for a task at indent 2 with both parents having more children
+        """
+        if index >= len(self.daily_list.tasks):
+            return []
+
+        from business_logic.task_operations import TaskGroupOperations
+
+        current_task = self.daily_list.tasks[index]
+        current_indent = current_task.indent_level
+
+        if current_indent == 0:
+            return []  # Top-level tasks have no vertical lines
+
+        lines = []
+
+        # For each indent level from 0 to current-1
+        for level in range(current_indent):
+            # Find the most recent parent at this level
+            parent_index = None
+            for i in range(index - 1, -1, -1):
+                if self.daily_list.tasks[i].indent_level == level:
+                    parent_index = i
+                    break
+
+            if parent_index is not None:
+                # Check if this parent's children extend past the current task
+                _, group_end = TaskGroupOperations.get_task_group(
+                    self.daily_list.tasks, parent_index
+                )
+
+                # Show vertical line for all children (including last child)
+                if index <= group_end and index > parent_index:
+                    lines.append("   │")
+                else:
+                    lines.append("    ")
+            else:
+                # No parent found at this level (shouldn't happen in valid hierarchy)
+                lines.append("    ")
+
+        return lines
+
     def wrap_text(self, text: str, width: int) -> list[str]:
         """Wrap text to fit within width, preserving Rich markup.
 
@@ -237,23 +289,28 @@ class TaskListWidget(Static):
 
             # Check if we need to show a divider before this task
             if self.should_show_divider_before(i):
-                # Create divider with appropriate indentation
-                indent = "  " * task.indent_level
+                # Get vertical lines for hierarchy
+                divider_vertical_lines = self.get_vertical_lines(i)
+
+                # Build indent with vertical lines (each segment is already 4 chars)
+                divider_indent_with_lines = ""
+                for line_segment in divider_vertical_lines:
+                    divider_indent_with_lines += line_segment
 
                 if task.indent_level == 0:
                     # Main divider (top-level): thicker line, standard indentation
-                    # marker (1) + selection_indicator (1) + space (1) + indent
-                    divider_prefix = "   " + indent
+                    # marker (1) + selection_indicator (1) + space (1)
+                    divider_prefix = "   "
                     prefix_length = len(divider_prefix)
                     divider_width = max(10, available_width - prefix_length)
                     divider_line = f"{divider_prefix}[dim]{'━' * divider_width}[/dim]"
                 else:
                     # Child divider: align with checkbox position
-                    # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2)
-                    divider_prefix = "   " + indent + "  "
-                    prefix_length = len(divider_prefix)
+                    # Layer vertical lines and divider with separate formatting to avoid artifacts
+                    # marker (1) + selection_indicator (1) + space (1) + indent_with_lines + fold_indicator (2)
+                    prefix_length = 3 + len(divider_indent_with_lines) + 2
                     divider_width = max(10, available_width - prefix_length)
-                    divider_line = f"{divider_prefix}[dim]{'─' * divider_width}[/dim]"
+                    divider_line = f"   [dim]{divider_indent_with_lines}[/dim]  [dim]{'─' * divider_width}[/dim]"
 
                 lines.append(divider_line)
 
@@ -267,6 +324,14 @@ class TaskListWidget(Static):
             else:
                 selection_indicator = " "
 
+            # Get vertical lines for hierarchy (returns list of "   │" or "    " per level)
+            vertical_lines = self.get_vertical_lines(i)
+
+            # Build indent with vertical lines (each segment is already 4 chars)
+            indent_with_lines = ""
+            for line_segment in vertical_lines:
+                indent_with_lines += line_segment
+
             # Add fold indicator - always use 2 chars for consistent alignment
             fold_indicator = "  "  # Default: two spaces
             if self.has_children(i):
@@ -276,8 +341,6 @@ class TaskListWidget(Static):
                 else:
                     fold_indicator = "▼ "
 
-            # Create the task display
-            indent = "  " * task.indent_level
             # Escape brackets so they're not interpreted as markup
             checkbox = "\\[x]" if task.completed else "\\[ ]"
 
@@ -286,8 +349,8 @@ class TaskListWidget(Static):
             task_content_with_time = task.content + time_display
 
             # Calculate prefix length (visible characters before content)
-            # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
-            prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
+            # marker (1) + selection_indicator (1) + space (1) + indent_with_lines + fold_indicator (2) + checkbox (3) + space (1)
+            prefix_length = 1 + 1 + 1 + len(indent_with_lines) + 2 + 3 + 1
 
             # Calculate available width for content
             # Ensure we have at least 20 chars for content, otherwise don't wrap
@@ -305,19 +368,20 @@ class TaskListWidget(Static):
 
             # Render first line with full prefix
             if i == self.selected_index:
-                first_line = f"[#ff006e on #2d2d44]{marker}{selection_indicator} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
+                first_line = f"[#ff006e on #2d2d44]{marker}{selection_indicator} [dim]{indent_with_lines}[/dim][#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}[/#ff006e on #2d2d44]"
             else:
-                first_line = f"{marker}{selection_indicator} {indent}[#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}"
+                first_line = f"{marker}{selection_indicator} [dim]{indent_with_lines}[/dim][#0abdc6]{fold_indicator}[/#0abdc6]{checkbox} {wrapped_lines[0]}"
 
             lines.append(first_line)
 
-            # Add continuation lines with proper indentation
-            continuation_indent = " " * prefix_length
+            # Add continuation lines with proper indentation including vertical lines
+            # marker (1) + selection_indicator (1) + space (1) + indent_with_lines + fold (2) + checkbox (3) + space (1)
+            continuation_indent = "   " + indent_with_lines + "      "
             for continuation in wrapped_lines[1:]:
                 if i == self.selected_index:
-                    cont_line = f"[#ff006e on #2d2d44]{continuation_indent}{continuation}[/#ff006e on #2d2d44]"
+                    cont_line = f"[#ff006e on #2d2d44] {selection_indicator} [dim]{indent_with_lines}[/dim]      {continuation}[/#ff006e on #2d2d44]"
                 else:
-                    cont_line = f"{continuation_indent}{continuation}"
+                    cont_line = f" {selection_indicator} [dim]{indent_with_lines}[/dim]      {continuation}"
                 lines.append(cont_line)
 
         return "\n".join(lines)
@@ -370,9 +434,14 @@ class TaskListWidget(Static):
 
             # Calculate how many lines this task occupies (accounting for wrapping)
             # Must match the logic in render() method
-            indent = "  " * task.indent_level
-            # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
-            prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
+            line_vertical_lines = self.get_vertical_lines(i)
+            # Build indent with vertical lines (each segment is already 4 chars)
+            line_indent_with_lines = ""
+            for line_segment in line_vertical_lines:
+                line_indent_with_lines += line_segment
+
+            # marker (1) + selection_indicator (1) + space (1) + indent_with_lines + fold_indicator (2) + checkbox (3) + space (1)
+            prefix_length = 1 + 1 + 1 + len(line_indent_with_lines) + 2 + 3 + 1
 
             # Add time tracking display (must match render())
             time_display = self.format_time_display(task, i)
