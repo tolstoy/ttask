@@ -98,26 +98,54 @@ When folded:
 ▶ [ ] Write documentation
 ```
 
+## Architecture
+
+The codebase follows a **layered architecture** with clear separation of concerns:
+
+**Data Layer** (`models.py`)
+- Core data structures: `Task` and `DailyTaskList`
+- Handles task properties: completion, indentation, time tracking
+- Serialization to markdown format
+
+**Storage Layer** (`markdown_handler.py`)
+- File I/O operations for markdown persistence
+- Parses markdown into task objects
+- Handles time metadata parsing (est:5m, actual:10m, etc.)
+- Graceful error handling for missing/corrupted files
+
+**Business Logic Layer** (`business_logic/`)
+- `date_navigator.py`: Date parsing and navigation (natural language support)
+- `task_operations.py`: Hierarchical task operations (parent/child groups, siblings)
+- `time_tracker.py`: Active timer management and time accumulation
+- `scoring.py`: Gamified scoring system with efficiency multiplier
+
+**Presentation Layer** (`ui/`)
+- `task_list_widget.py`: Renders task list with visual hierarchy
+- `help_screen.py`: Help modal with keyboard shortcuts
+- `widgets.py`: Reusable UI components
+
 ## Development
 
 ### Project Structure
 ```
 tTask/
 ├── app.py                      # Main application
-├── models.py                   # Data models (Task, DailyTaskList)
-├── markdown_handler.py         # File I/O for markdown storage
+├── models.py                   # Data layer: Task models
+├── markdown_handler.py         # Storage layer: File I/O
 ├── config.py                   # Centralized configuration
-├── business_logic/             # Business logic modules
-│   ├── date_navigator.py       # Date navigation & parsing
-│   └── task_operations.py      # Task group operations
-├── ui/                         # UI widgets
+├── business_logic/             # Business logic layer
+│   ├── date_navigator.py       # Date parsing (natural language)
+│   ├── task_operations.py      # Hierarchical task operations
+│   ├── time_tracker.py         # Active timer & time tracking
+│   └── scoring.py              # Gamified scoring system
+├── ui/                         # Presentation layer
 │   ├── help_screen.py          # Help modal
 │   ├── task_list_widget.py     # Task list rendering
-│   └── widgets.py              # Reusable widgets
-└── tests/                      # Test suite (63 tests)
-    ├── test_task_list_widget.py
+│   └── widgets.py              # Reusable UI components
+└── tests/                      # Test suite (63+ tests)
+    ├── test_task_operations.py
     ├── test_date_parser.py
-    └── test_task_operations.py
+    └── test_task_list_widget.py
 ```
 
 ### Running Tests
@@ -137,6 +165,7 @@ python -m pytest tests/ --cov=. --cov-report=html
 
 ### Code Quality
 - **Type hints**: Full type annotations throughout
-- **Modular design**: Business logic, UI, and data models separated
-- **Comprehensive tests**: 63 tests covering edge cases and core functionality
-- **Clean code**: No TODOs, proper error handling, consistent style
+- **Layered architecture**: Clear separation of data, storage, business logic, and UI
+- **Comprehensive tests**: 63+ tests covering edge cases and core functionality
+- **Comprehensive docstrings**: Google-style docstrings with examples
+- **Clean code**: Proper error handling, consistent style, no technical debt

@@ -5,6 +5,7 @@ from datetime import date
 from typing import Optional
 from models import Task, DailyTaskList
 from config import config
+from utils.time_utils import parse_time_string
 
 
 class MarkdownHandler:
@@ -23,47 +24,34 @@ class MarkdownHandler:
             self.base_dir = Path(base_dir).expanduser()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    @staticmethod
-    def _parse_time_to_seconds(time_str: str) -> int:
-        """
-        Parse a time string into seconds.
+    def get_file_path(self, task_date: date) -> Path:
+        """Get the file path for a given date.
 
         Args:
-            time_str: Time string like "30s", "5m", "1h30m15s"
+            task_date: The date to get the file path for
 
         Returns:
-            Number of seconds
+            Path object pointing to the markdown file for that date (YYYY-MM-DD.md format)
         """
-        time_str = time_str.strip().lower()
-        if not time_str:
-            return 0
-
-        # Match patterns like: 1h30m15s, 2h, 30m, 90s
-        pattern = r'(?:(\d+(?:\.\d+)?)(?:h|hr|hour|hours))?\s*(?:(\d+(?:\.\d+)?)(?:m|min|minutes?))?\s*(?:(\d+(?:\.\d+)?)(?:s|sec|seconds?))?'
-        match = re.match(pattern, time_str)
-
-        if match:
-            hours_str, minutes_str, seconds_str = match.groups()
-            total_seconds = 0.0
-
-            if hours_str:
-                total_seconds += float(hours_str) * 3600
-            if minutes_str:
-                total_seconds += float(minutes_str) * 60
-            if seconds_str:
-                total_seconds += float(seconds_str)
-
-            return int(total_seconds)
-
-        return 0
-
-    def get_file_path(self, task_date: date) -> Path:
-        """Get the file path for a given date."""
         filename = task_date.strftime("%Y-%m-%d.md")
         return self.base_dir / filename
 
     def load_tasks(self, task_date: date) -> DailyTaskList:
-        """Load tasks from markdown file for a given date."""
+        """Load tasks from markdown file for a given date.
+
+        Parses markdown file and reconstructs task objects with all metadata
+        (completion status, indentation, time tracking, fold state).
+
+        Args:
+            task_date: The date to load tasks for
+
+        Returns:
+            DailyTaskList object containing all tasks for that date.
+            Returns empty list if file doesn't exist or cannot be read.
+
+        Note:
+            Handles gracefully: missing files, corrupted files, encoding errors
+        """
         file_path = self.get_file_path(task_date)
         daily_list = DailyTaskList(date=task_date)
 
@@ -93,13 +81,14 @@ class MarkdownHandler:
             estimated_seconds = None
             actual_seconds = 0
             # Match patterns like: est:30s, est:5m, est:1h30m15s, actual:90s
-            time_match = re.search(r'<!--\s*(?:est:([\d.]+(?:h|m|s|hr|min|sec|hours?|minutes?|seconds?)+))?(?:,\s*)?(?:actual:([\d.]+(?:h|m|s|hr|min|sec|hours?|minutes?|seconds?)+))?\s*-->', match.group(0))
+            # Updated regex to support compound time formats like 1h30m
+            time_match = re.search(r'<!--\s*(?:est:([\d.]+(?:h|hr|hour|hours)?(?:\s*[\d.]+)?(?:m|min|minutes?)?(?:\s*[\d.]+)?(?:s|sec|seconds?)?))?\s*(?:,\s*)?(?:actual:([\d.]+(?:h|hr|hour|hours)?(?:\s*[\d.]+)?(?:m|min|minutes?)?(?:\s*[\d.]+)?(?:s|sec|seconds?)?))?\s*-->', match.group(0))
             if time_match:
                 est_str, act_str = time_match.groups()
                 if est_str:
-                    estimated_seconds = self._parse_time_to_seconds(est_str)
+                    estimated_seconds = parse_time_string(est_str)
                 if act_str:
-                    actual_seconds = self._parse_time_to_seconds(act_str)
+                    actual_seconds = parse_time_string(act_str) or 0
 
             # Remove all HTML comments from content (fold marker, time metadata, etc.)
             task_content_clean = re.sub(r'\s*<!--.*?-->', '', task_content).strip()
@@ -117,7 +106,20 @@ class MarkdownHandler:
         return daily_list
 
     def save_tasks(self, daily_list: DailyTaskList):
-        """Save tasks to markdown file."""
+        """Save tasks to markdown file.
+
+        Converts task objects to markdown format with all metadata preserved.
+        Creates file if it doesn't exist; overwrites if it does.
+
+        Args:
+            daily_list: The DailyTaskList to save
+
+        Raises:
+            IOError: If file cannot be written (permissions, disk full, etc.)
+
+        Note:
+            Creates empty file with date header if task list is empty.
+        """
         file_path = self.get_file_path(daily_list.date)
 
         if not daily_list.tasks:
@@ -137,7 +139,25 @@ class MarkdownHandler:
             raise IOError(f"Failed to save tasks to {file_path}: {e}") from e
 
     def move_task_to_date(self, task: Task, from_date: date, to_date: date):
-        """Move a task from one date to another."""
+        """Move a task from one date to another.
+
+        Transfers a task between two date files. Resets completion status and
+        actual time spent, but preserves estimates and fold state.
+
+        Args:
+            task: The task to move
+            from_date: The date the task is currently on
+            to_date: The date to move the task to
+
+        Returns:
+            The new task object created on the destination date
+
+        Note:
+            - Task completion is reset (uncompleted)
+            - Actual time is reset (0 seconds)
+            - Estimate and fold state are preserved
+            - Timer is reset (timer_start = None)
+        """
         # Load both task lists
         from_list = self.load_tasks(from_date)
         to_list = self.load_tasks(to_date)

@@ -1,4 +1,20 @@
-"""Scoring system for time tracking with efficiency multiplier."""
+"""Scoring system for time tracking with efficiency multiplier.
+
+This module provides a gamified scoring system that encourages accurate task
+estimation and efficient execution. The scoring formula incentivizes both
+beating estimates and making ambitious (short) estimates.
+
+Scoring Formula:
+    points = (estimate_minutes - actual_minutes) * efficiency_multiplier
+    where efficiency_multiplier = 100 / (estimate_minutes + 10)
+
+Examples:
+    - Beat a 10-minute task by 5 min: 5 * (100/20) = 25 points
+    - Beat a 60-minute task by 5 min: 5 * (100/70) = 7.14 points
+
+This incentivizes making realistic estimates (too-short estimates are penalized
+by the multiplier if you don't beat them).
+"""
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Dict
@@ -9,7 +25,20 @@ from models import Task, DailyTaskList
 
 @dataclass
 class DailyScore:
-    """Statistics and score for a single day."""
+    """Statistics and score for a single day.
+
+    Tracks both point-based score and efficiency metrics for a day's tasks.
+
+    Attributes:
+        date: The date these statistics are for
+        total_score: Total points earned (can be negative if over estimates)
+        tasks_completed: Number of completed tasks (regardless of estimate)
+        tasks_beat_estimate: Number of tasks where actual <= estimated time
+        tasks_over_estimate: Number of tasks where actual > estimated time
+        total_estimated_minutes: Sum of all task estimates (in minutes)
+        total_actual_minutes: Sum of all actual time spent (in minutes)
+        efficiency_ratio: Ratio of actual/estimated (lower is better, 1.0 is perfect)
+    """
     date: date
     total_score: float
     tasks_completed: int
@@ -17,7 +46,7 @@ class DailyScore:
     tasks_over_estimate: int
     total_estimated_minutes: int
     total_actual_minutes: int
-    efficiency_ratio: float  # actual/estimated (lower is better)
+    efficiency_ratio: float
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -111,13 +140,22 @@ class ScoringSystem:
         """
         Calculate efficiency multiplier based on estimate.
 
-        Lower estimates get higher multipliers, incentivizing ambitious goals.
+        Lower estimates get higher multipliers, incentivizing ambitious goals
+        while penalizing overly-ambitious (unbeatable) estimates.
+
+        Formula: 100 / (estimated_minutes + 10)
 
         Args:
             estimated_seconds: The estimated time in seconds
 
         Returns:
             Efficiency multiplier (higher for lower estimates)
+
+        Example:
+            >>> ScoringSystem.calculate_efficiency_multiplier(600)  # 10 min = (100 / 20) = 5.0
+            5.0
+            >>> ScoringSystem.calculate_efficiency_multiplier(3600)  # 60 min = (100 / 70) = 1.43
+            1.4285714285714286
         """
         # Convert to minutes for the formula (keeps scores similar to before)
         estimated_minutes = estimated_seconds / 60.0
@@ -128,11 +166,19 @@ class ScoringSystem:
         """
         Calculate score for a single task.
 
+        Only scores completed tasks with estimates. Returns 0 for incomplete
+        tasks or tasks without estimates.
+
         Args:
-            task: The task to score
+            task: The task to score (must be completed and have estimated_seconds)
 
         Returns:
-            Score (positive if beat estimate, negative if over)
+            Score (positive if beat estimate, negative if over, 0 if no estimate)
+
+        Example:
+            >>> task = Task("Work", completed=True, estimated_seconds=600, actual_seconds=300)
+            >>> ScoringSystem.calculate_task_score(task)  # Beat 10m by 5m = 5 * 5.0 = 25.0
+            25.0
         """
         if task.estimated_seconds is None:
             return 0.0
@@ -152,11 +198,19 @@ class ScoringSystem:
         """
         Calculate comprehensive daily score and statistics.
 
+        Analyzes all tasks in the daily list, calculates points based on the
+        scoring formula, and tracks efficiency metrics. Results are persisted
+        to the stats file.
+
         Args:
-            task_list: The daily task list
+            task_list: The daily task list to score
 
         Returns:
-            DailyScore object with all statistics
+            DailyScore object with all statistics (also persisted)
+
+        Note:
+            Results are automatically saved to stats_file for streak and
+            historical analysis.
         """
         total_score = 0.0
         tasks_completed = 0
@@ -210,11 +264,19 @@ class ScoringSystem:
         """
         Calculate current streak of days with positive scores.
 
+        Counts backwards from the given date to find the longest sequence
+        of consecutive days with positive scores (total_score > 0).
+
         Args:
-            current_date: The current date to calculate streak from
+            current_date: The current date to calculate streak from (search goes backwards)
 
         Returns:
-            Number of consecutive days with positive scores
+            Number of consecutive days with positive scores (0 if current day has no positive score)
+
+        Example:
+            >>> scoring = ScoringSystem()
+            >>> # If Nov 9, 8, 7 all have positive scores but Nov 6 doesn't:
+            >>> scoring.get_streak(date(2025, 11, 9))  # Returns 3
         """
         streak = 0
         check_date = current_date
@@ -239,11 +301,13 @@ class ScoringSystem:
         """
         Get the score for a specific date.
 
+        Retrieves previously calculated score from the loaded stats file.
+
         Args:
             task_date: The date to get score for
 
         Returns:
-            DailyScore if exists, None otherwise
+            DailyScore if exists, None if no score has been calculated for that date
         """
         date_str = task_date.isoformat()
         return self.daily_scores.get(date_str)
@@ -252,11 +316,20 @@ class ScoringSystem:
         """
         Get average efficiency ratio over the last N days.
 
+        Calculates the mean efficiency_ratio (actual/estimated time) over the
+        most recent N days with scores. Lower is better (1.0 = perfect estimates).
+
         Args:
-            days: Number of days to average over
+            days: Number of recent days to average over (default: 7)
 
         Returns:
-            Average efficiency ratio (actual/estimated)
+            Average efficiency ratio (actual/estimated). Returns 1.0 if no scores exist.
+
+        Example:
+            >>> scoring = ScoringSystem()
+            >>> efficiency = scoring.get_average_efficiency(days=7)
+            >>> # 0.9 means on average taking 90% of estimated time (beating estimates)
+            >>> # 1.1 means on average taking 110% of estimated time (missing estimates)
         """
         if not self.daily_scores:
             return 1.0

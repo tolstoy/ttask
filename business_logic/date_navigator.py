@@ -24,12 +24,20 @@ class DateNavigator:
         """
         Find the previous day that has incomplete tasks.
 
+        Searches backwards from the given date to find the nearest day with
+        at least one incomplete task. Useful for navigating to days with pending work.
+
         Args:
-            start_date: Date to start searching from
+            start_date: Date to start searching from (search goes backwards from here)
             max_days: Maximum number of days to search backwards (uses config.max_search_days if None)
 
         Returns:
-            Date of previous day with incomplete tasks, or None if not found
+            Date of previous day with incomplete tasks, or None if not found within max_days
+
+        Example:
+            >>> navigator = DateNavigator(handler)
+            >>> prev_day = navigator.find_prev_non_empty_day(date(2025, 11, 9))
+            >>> # Returns date(2025, 11, 8) if that day has incomplete tasks
         """
         if max_days is None:
             max_days = config.max_search_days
@@ -51,12 +59,20 @@ class DateNavigator:
         """
         Find the next day that has incomplete tasks.
 
+        Searches forwards from the given date to find the nearest day with
+        at least one incomplete task. Useful for jumping to days with pending work.
+
         Args:
-            start_date: Date to start searching from
+            start_date: Date to start searching from (search goes forwards from here)
             max_days: Maximum number of days to search forward (uses config.max_search_days if None)
 
         Returns:
-            Date of next day with incomplete tasks, or None if not found
+            Date of next day with incomplete tasks, or None if not found within max_days
+
+        Example:
+            >>> navigator = DateNavigator(handler)
+            >>> next_day = navigator.find_next_non_empty_day(date(2025, 11, 9))
+            >>> # Returns date(2025, 11, 10) if that day has incomplete tasks
         """
         if max_days is None:
             max_days = config.max_search_days
@@ -74,27 +90,49 @@ class DateNavigator:
 
 
 class NaturalDateParser:
-    """Parse natural language date inputs."""
+    """Parse natural language date inputs into structured dates.
+
+    Supports multiple input formats for flexible date parsing:
+    - Relative offsets (from viewed date)
+    - Absolute dates (ISO and natural language)
+    - Day names and week references
+
+    This enables intuitive date navigation in the task journal UI.
+    """
 
     @staticmethod
     def parse(input_str: str, from_date: date) -> Optional[date]:
         """
-        Parse natural language date input.
+        Parse natural language date input into a date object.
 
-        Supports:
+        Supports multiple input formats to provide flexible date navigation:
         - Relative offsets: +1, -1, +7, etc. (relative to from_date, the viewed date)
-        - ISO format: YYYY-MM-DD (absolute)
+        - ISO format: YYYY-MM-DD (absolute date)
         - Absolute words: today, tomorrow, yesterday (relative to actual current date)
         - Day names: monday, tuesday, etc. (next occurrence from actual current date)
         - Relative weeks: next week, last week (relative to actual current date)
         - Month + day: nov 10, december 25 (current year based on actual current date)
 
         Args:
-            input_str: Natural language date string
-            from_date: Reference date for relative offsets
+            input_str: Natural language date string (case-insensitive)
+            from_date: Reference date for relative offsets (typically the currently viewed date)
 
         Returns:
-            Parsed date or None if parsing failed
+            Parsed date object, or None if parsing failed
+
+        Example:
+            >>> parser = NaturalDateParser()
+            >>> viewed_date = date(2025, 11, 9)
+            >>> # Relative offset (from viewed date)
+            >>> parser.parse("+1", viewed_date)  # date(2025, 11, 10)
+            >>> # Absolute words (from today)
+            >>> parser.parse("tomorrow", viewed_date)  # date(2025, 11, 10)
+            >>> # ISO format
+            >>> parser.parse("2025-11-15", viewed_date)  # date(2025, 11, 15)
+            >>> # Day name (next occurrence)
+            >>> parser.parse("friday", viewed_date)  # Next Friday
+            >>> # Month + day
+            >>> parser.parse("dec 25", viewed_date)  # Next Dec 25
         """
         input_str = input_str.strip().lower()
 

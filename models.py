@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 from datetime import date, datetime
+from utils.time_utils import format_time
 
 
 @dataclass
@@ -32,26 +33,6 @@ class Task:
         """Toggle fold status."""
         self.folded = not self.folded
 
-    @staticmethod
-    def _format_seconds(seconds: int) -> str:
-        """Format seconds into human-readable string for markdown."""
-        if seconds < 60:
-            return f"{seconds}s"
-
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-
-        parts = []
-        if hours > 0:
-            parts.append(f"{hours}h")
-        if minutes > 0:
-            parts.append(f"{minutes}m")
-        if secs > 0:
-            parts.append(f"{secs}s")
-
-        return "".join(parts)
-
     def to_markdown(self) -> str:
         """Convert task to markdown format."""
         indent = "  " * self.indent_level
@@ -63,9 +44,9 @@ class Task:
         # Add time tracking metadata
         time_parts = []
         if self.estimated_seconds is not None:
-            time_parts.append(f"est:{self._format_seconds(self.estimated_seconds)}")
+            time_parts.append(f"est:{format_time(self.estimated_seconds)}")
         if self.actual_seconds > 0:
-            time_parts.append(f"actual:{self._format_seconds(self.actual_seconds)}")
+            time_parts.append(f"actual:{format_time(self.actual_seconds)}")
 
         time_marker = f" <!-- {', '.join(time_parts)} -->" if time_parts else ""
 
