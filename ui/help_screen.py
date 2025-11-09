@@ -65,6 +65,7 @@ a             Add new task
 r             Edit/rename selected task
 Space or x    Toggle task completion (or selection in visual mode)
 d             Delete selected task (or all selected in visual mode)
+u             Undo last delete (keeps last 20 operations)
 Tab           Indent task (nest under previous)
 Shift+Tab     Unindent task
 

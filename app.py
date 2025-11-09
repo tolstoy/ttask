@@ -1,6 +1,7 @@
 """Main TUI application for task journal."""
 from datetime import date, timedelta
 from typing import Optional
+from copy import deepcopy
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Static, Input
 from textual.containers import Container
@@ -80,6 +81,7 @@ class TaskJournalApp(App):
         Binding("x", "toggle_complete", "Complete", show=False),
         Binding("space", "toggle_complete", "Complete", show=False),
         Binding("d", "delete_task", "Delete", show=False),
+        Binding("u", "undo", "Undo", show=False),
         Binding("j", "move_down", "Down", show=False),
         Binding("k", "move_up", "Up", show=False),
         Binding("down", "move_down", "Down", show=False),
@@ -137,6 +139,9 @@ class TaskJournalApp(App):
         self.estimate_task_index = None
         self.time_task_index = None
         self.timer_refresh_interval = None  # For auto-refreshing timer display
+        # Undo state
+        self.undo_stack = []  # List of (operation, data, date) tuples
+        self.max_undo_depth = 20  # Keep last 20 operations
 
     def compose(self) -> ComposeResult:
         """Compose the UI."""
@@ -293,11 +298,17 @@ class TaskJournalApp(App):
         if not self.daily_list.tasks:
             return
 
+        # Capture deleted tasks for undo (store as list of (index, task_copy))
+        deleted_tasks = []
+
         if self.selection_mode and self.selected_task_indices:
             # Delete all selected tasks (already includes children due to auto-selection)
             # Sort in reverse order to maintain indices while deleting
             for idx in sorted(self.selected_task_indices, reverse=True):
                 if idx < len(self.daily_list.tasks):
+                    # Capture task before deletion
+                    task_copy = deepcopy(self.daily_list.tasks[idx])
+                    deleted_tasks.append((idx, task_copy))
                     self.daily_list.remove_task(idx)
 
             # Clear selection after deleting
@@ -308,11 +319,46 @@ class TaskJournalApp(App):
                 self.daily_list.tasks, task_widget.selected_index
             )
 
-            # Delete all tasks in the group (in reverse to maintain indices)
+            # Capture and delete all tasks in the group (in reverse to maintain indices)
             for i in range(end_idx, start_idx - 1, -1):
+                task_copy = deepcopy(self.daily_list.tasks[i])
+                deleted_tasks.append((i, task_copy))
                 self.daily_list.remove_task(i)
 
+        # Push to undo stack
+        self._push_undo('delete', deleted_tasks, self.current_date)
+
         self.save_and_refresh()
+
+    def _push_undo(self, operation: str, data, operation_date: date) -> None:
+        """Push an operation to the undo stack."""
+        self.undo_stack.append((operation, data, operation_date))
+        # Enforce max depth
+        if len(self.undo_stack) > self.max_undo_depth:
+            self.undo_stack.pop(0)
+
+    def action_undo(self) -> None:
+        """Undo the last delete operation."""
+        if not self.undo_stack:
+            return
+
+        # Get the last operation
+        operation, data, operation_date = self.undo_stack[-1]
+
+        # Only undo if we're on the same date as the operation
+        if operation_date != self.current_date:
+            return
+
+        if operation == 'delete':
+            # Remove from undo stack
+            self.undo_stack.pop()
+
+            # Restore deleted tasks (data is list of (index, task) tuples)
+            # Sort by index to restore in correct order
+            for idx, task in sorted(data):
+                self.daily_list.tasks.insert(idx, task)
+
+            self.save_and_refresh()
 
     def action_indent(self) -> None:
         """Indent the selected task and all its children."""
