@@ -11,8 +11,11 @@ from markdown_handler import MarkdownHandler
 from models import DailyTaskList, Task
 from business_logic.date_navigator import DateNavigator, NaturalDateParser
 from business_logic.task_operations import TaskGroupOperations
+from business_logic.time_tracker import TimeTracker
+from business_logic.scoring import ScoringSystem
 from config import config
 from ui.help_screen import HelpScreen
+from ui.statistics_screen import StatisticsScreen
 from ui.widgets import CenteredFooter
 from ui.task_list_widget import TaskListWidget
 
@@ -88,21 +91,34 @@ class TaskJournalApp(App):
         Binding("shift+left", "prev_non_empty_day", "S-← Skip", show=False),
         Binding("shift+right", "next_non_empty_day", "S-→ Skip", show=False),
         Binding("l", "next_day", "Next Day", show=False),
-        Binding("t", "today", "Today", show=False),
+        Binding("g", "today", "Today", show=False),
         Binding("tab", "indent", "Indent", show=False),
         Binding("shift+tab", "unindent", "Unindent", show=False),
         Binding("f", "toggle_fold", "Fold", show=False),
         Binding("m", "move_task", "Move", show=False),
-        Binding("e", "edit_task", "Edit", show=False),
+        Binding("r", "edit_task", "Edit", show=False),
         Binding("v", "toggle_selection_mode", "Visual", show=False),
+        # Time tracking bindings
+        Binding("t", "toggle_timer", "Timer", show=False),
+        Binding("T", "clear_timer", "Clear Timer", show=False),
+        Binding("e", "set_estimate", "Estimate", show=False),
+        Binding("plus", "add_time", "Add Time", show=False),
+        Binding("minus", "subtract_time", "Sub Time", show=False),
+        Binding("S", "show_statistics", "Stats", show=False),
     ]
 
     def __init__(self):
         super().__init__()
         self.handler = MarkdownHandler()
         self.date_navigator = DateNavigator(self.handler)
+        self.time_tracker = TimeTracker()
+        self.scoring_system = ScoringSystem()
         self.current_date = date.today()
         self.daily_list = self.handler.load_tasks(self.current_date)
+
+        # Sync timer state with loaded tasks (restores timer if app was restarted)
+        self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
         self.adding_task = False
         self.editing_task = False
         self.moving_task = False
@@ -114,13 +130,20 @@ class TaskJournalApp(App):
         # Selection mode state
         self.selection_mode = False
         self.selected_task_indices = set()
+        # Time tracking state
+        self.setting_estimate = False
+        self.adding_time = False
+        self.subtracting_time = False
+        self.estimate_task_index = None
+        self.time_task_index = None
+        self.timer_refresh_interval = None  # For auto-refreshing timer display
 
     def compose(self) -> ComposeResult:
         """Compose the UI."""
         yield Header()
         yield Static(id="date_header")
         yield Container(
-            TaskListWidget(self.daily_list, self.selection_mode, self.selected_task_indices),
+            TaskListWidget(self.daily_list, self.selection_mode, self.selected_task_indices, self.time_tracker, self.scoring_system),
             id="task_list"
         )
         yield Container(id="input_container")
@@ -129,6 +152,20 @@ class TaskJournalApp(App):
     def on_mount(self) -> None:
         """Set up the app after mounting."""
         self.update_date_header()
+        self.update_footer()
+        # Start auto-refresh timer for live timer updates (every second)
+        self.timer_refresh_interval = self.set_interval(1.0, self._refresh_timer_display)
+
+    def _refresh_timer_display(self) -> None:
+        """Refresh the task list display if a timer is running (for live seconds update)."""
+        if self.time_tracker.active_task_index is not None:
+            try:
+                task_widget = self.query_one(TaskListWidget)
+                task_widget.refresh()
+            except Exception:
+                # Widget not accessible (e.g., modal is open)
+                # Timer keeps running in background, skip this display update
+                pass
 
     def update_date_header(self) -> None:
         """Update the date header."""
@@ -137,13 +174,40 @@ class TaskJournalApp(App):
         header.update(date_str)
 
     def update_footer(self) -> None:
-        """Update the footer with selection mode status."""
-        footer = self.query_one(CenteredFooter)
+        """Update the footer with selection mode status and time tracking stats."""
+        try:
+            footer = self.query_one(CenteredFooter)
+        except Exception:
+            # Footer not accessible (modal is open or transitioning)
+            return
+
         if self.selection_mode:
             count = len(self.selected_task_indices)
             footer.update(f"[bold]VISUAL MODE[/bold] [dim]•[/dim] {count} task{'s' if count != 1 else ''} selected [dim]• Press[/dim] [bold]V[/bold] [dim]to exit[/dim]")
         else:
-            footer.update("[dim]Press[/dim] [bold]H[/bold] [dim]for Help  •  [/dim][bold]Q[/bold] [dim]to Quit[/dim]")
+            # Calculate daily score and stats
+            daily_score = self.scoring_system.calculate_daily_score(self.daily_list)
+            streak = self.scoring_system.get_streak(self.current_date)
+
+            # Show stats if we have any completed tasks with estimates, otherwise show help hints
+            if daily_score.tasks_completed > 0 and daily_score.total_estimated_minutes > 0:
+                # Format score display
+                score_str = f"{int(daily_score.total_score)}pts"
+                if daily_score.total_score > 0:
+                    score_str = f"[green]{score_str}[/green]"
+                elif daily_score.total_score < 0:
+                    score_str = f"[red]{score_str}[/red]"
+
+                # Format streak display
+                streak_str = f"[yellow]{streak}[/yellow]d" if streak > 0 else "0d"
+
+                # Efficiency percentage (lower is better)
+                efficiency_pct = int(daily_score.efficiency_ratio * 100)
+
+                footer.update(f"Score: {score_str} [dim]•[/dim] Streak: {streak_str} [dim]•[/dim] {daily_score.tasks_completed} tasks [dim]•[/dim] Eff: {efficiency_pct}% [dim]•[/dim] [bold]H[/bold] [dim]Help[/dim] [bold]Q[/bold] [dim]Quit[/dim]")
+            else:
+                # No stats yet, show helpful hints
+                footer.update("[dim]Press[/dim] [bold]H[/bold] [dim]for Help[/dim] [dim]•[/dim] [bold]Q[/bold] [dim]to Quit[/dim]")
 
     def refresh_task_list(self) -> None:
         """Refresh the task list widget."""
@@ -151,6 +215,8 @@ class TaskJournalApp(App):
         task_widget.daily_list = self.daily_list
         task_widget.selection_mode = self.selection_mode
         task_widget.selected_task_indices = self.selected_task_indices
+        task_widget.time_tracker = self.time_tracker
+        task_widget.scoring_system = self.scoring_system
 
         # Ensure selected_index is valid
         if len(self.daily_list.tasks) == 0:
@@ -372,8 +438,15 @@ class TaskJournalApp(App):
 
     def action_next_day(self) -> None:
         """Navigate to next day."""
+        # Save current day's tasks before switching (preserves timer state in file)
+        self.save_current_tasks()
+
         self.current_date += timedelta(days=1)
         self.daily_list = self.handler.load_tasks(self.current_date)
+
+        # Sync timer state with newly loaded day
+        self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
         # Exit selection mode when changing days
         self.selection_mode = False
         self.selected_task_indices.clear()
@@ -382,8 +455,15 @@ class TaskJournalApp(App):
 
     def action_prev_day(self) -> None:
         """Navigate to previous day."""
+        # Save current day's tasks before switching (preserves timer state in file)
+        self.save_current_tasks()
+
         self.current_date -= timedelta(days=1)
         self.daily_list = self.handler.load_tasks(self.current_date)
+
+        # Sync timer state with newly loaded day
+        self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
         # Exit selection mode when changing days
         self.selection_mode = False
         self.selected_task_indices.clear()
@@ -394,8 +474,15 @@ class TaskJournalApp(App):
         """Navigate to previous non-empty day."""
         prev_date = self.date_navigator.find_prev_non_empty_day(self.current_date)
         if prev_date:
+            # Save current day's tasks before switching (preserves timer state in file)
+            self.save_current_tasks()
+
             self.current_date = prev_date
             self.daily_list = self.handler.load_tasks(self.current_date)
+
+            # Sync timer state with newly loaded day
+            self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
             # Exit selection mode when changing days
             self.selection_mode = False
             self.selected_task_indices.clear()
@@ -406,8 +493,15 @@ class TaskJournalApp(App):
         """Navigate to next non-empty day."""
         next_date = self.date_navigator.find_next_non_empty_day(self.current_date)
         if next_date:
+            # Save current day's tasks before switching (preserves timer state in file)
+            self.save_current_tasks()
+
             self.current_date = next_date
             self.daily_list = self.handler.load_tasks(self.current_date)
+
+            # Sync timer state with newly loaded day
+            self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
             # Exit selection mode when changing days
             self.selection_mode = False
             self.selected_task_indices.clear()
@@ -416,8 +510,15 @@ class TaskJournalApp(App):
 
     def action_today(self) -> None:
         """Navigate to today."""
+        # Save current day's tasks before switching (preserves timer state in file)
+        self.save_current_tasks()
+
         self.current_date = date.today()
         self.daily_list = self.handler.load_tasks(self.current_date)
+
+        # Sync timer state with newly loaded day
+        self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
         # Exit selection mode when changing days
         self.selection_mode = False
         self.selected_task_indices.clear()
@@ -515,6 +616,56 @@ class TaskJournalApp(App):
         input_widget = Input(value=task.content, placeholder="Edit task...")
         container.mount(input_widget)
         input_widget.focus()
+
+    @staticmethod
+    def parse_time_string(time_str: str) -> Optional[int]:
+        """
+        Parse a time string into seconds.
+
+        Supports formats:
+        - Plain number: "30" → 30 minutes → 1800 seconds
+        - Seconds: "90s" or "90sec" → 90 seconds
+        - Minutes: "30m" or "30min" → 1800 seconds
+        - Hours: "2h" → 7200 seconds
+        - Combined: "1h30m15s" → 5415 seconds
+        - Decimal: "1.5h" → 5400 seconds, "2.5m" → 150 seconds
+
+        Returns:
+            Number of seconds, or None if parse fails
+        """
+        import re
+
+        time_str = time_str.strip().lower()
+        if not time_str:
+            return None
+
+        # Try plain number first (assumes minutes, convert to seconds)
+        try:
+            return int(time_str) * 60
+        except ValueError:
+            pass
+
+        # Try to parse with units
+        # Match patterns like: 1h30m15s, 2h, 30m, 90s, 1.5h, etc.
+        # Pattern: optional hours, optional minutes, optional seconds
+        pattern = r'(?:(\d+(?:\.\d+)?)(?:h|hr|hour|hours))?\s*(?:(\d+(?:\.\d+)?)(?:m|min|minutes?))?\s*(?:(\d+(?:\.\d+)?)(?:s|sec|seconds?))?'
+        match = re.match(pattern, time_str)
+
+        if match:
+            hours_str, minutes_str, seconds_str = match.groups()
+            total_seconds = 0.0
+
+            if hours_str:
+                total_seconds += float(hours_str) * 3600
+            if minutes_str:
+                total_seconds += float(minutes_str) * 60
+            if seconds_str:
+                total_seconds += float(seconds_str)
+
+            if total_seconds > 0:
+                return int(total_seconds)
+
+        return None
 
     def action_move_task(self) -> None:
         """Move task(s) and all their children to another day."""
@@ -634,8 +785,174 @@ class TaskJournalApp(App):
             self.move_group_start = None
             self.move_group_end = None
 
+        elif self.setting_estimate:
+            if value:
+                seconds = self.parse_time_string(value)
+                if seconds is not None and 0 <= self.estimate_task_index < len(self.daily_list.tasks):
+                    task = self.daily_list.tasks[self.estimate_task_index]
+                    task.estimated_seconds = seconds
+                    self.save_and_refresh()
+            self.setting_estimate = False
+            self.estimate_task_index = None
+
+        elif self.adding_time:
+            if value:
+                seconds = self.parse_time_string(value)
+                if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
+                    task = self.daily_list.tasks[self.time_task_index]
+                    self.time_tracker.add_manual_time(task, seconds)
+                    self.save_and_refresh()
+            self.adding_time = False
+            self.time_task_index = None
+
+        elif self.subtracting_time:
+            if value:
+                seconds = self.parse_time_string(value)
+                if seconds is not None and 0 <= self.time_task_index < len(self.daily_list.tasks):
+                    task = self.daily_list.tasks[self.time_task_index]
+                    self.time_tracker.add_manual_time(task, -seconds)  # Negative to subtract
+                    self.save_and_refresh()
+            self.subtracting_time = False
+            self.time_task_index = None
+
         # Remove input widget
         event.input.remove()
+
+    def action_toggle_timer(self) -> None:
+        """
+        Toggle timer for the selected task.
+
+        How it works:
+        - Press 't' on a task to START the timer (shows ⏱️ icon and live elapsed time)
+        - Press 't' again to STOP the timer (adds elapsed time to actual_minutes)
+        - Stopping one timer automatically happens if you start another
+        - Timer continues running even if you switch tasks or days
+        """
+        if not self.daily_list.tasks:
+            return
+
+        task_widget = self.query_one(TaskListWidget)
+        task = self.daily_list.tasks[task_widget.selected_index]
+
+        is_running, seconds_added = self.time_tracker.toggle_timer(
+            self.daily_list,
+            task_widget.selected_index
+        )
+
+        self.save_and_refresh()
+
+        # Force immediate timer display update to sync with timer start
+        if is_running:
+            self._refresh_timer_display()
+
+    def action_clear_timer(self) -> None:
+        """
+        Clear all time tracking from the selected task.
+
+        Removes:
+        - Running timer (if any)
+        - Time estimate
+        - Actual time accumulated
+
+        Use this to completely reset time tracking for a task.
+        Press Shift+T to clear.
+        """
+        if not self.daily_list.tasks:
+            return
+
+        task_widget = self.query_one(TaskListWidget)
+        task = self.daily_list.tasks[task_widget.selected_index]
+
+        # Clear timer if running
+        self.time_tracker.clear_timer(self.daily_list)
+
+        # Clear all time tracking data
+        task.estimated_seconds = None
+        task.actual_seconds = 0
+        task.timer_start = None
+
+        self.save_and_refresh()
+
+        # Show feedback AFTER save_and_refresh
+        footer = self.query_one(CenteredFooter)
+        footer.update(f"[red]Time tracking cleared:[/red] {task.content[:50]}")
+
+        # Reset footer after 3 seconds
+        self.set_timer(3.0, self.update_footer)
+
+    def action_set_estimate(self) -> None:
+        """Set or edit estimate for the selected task."""
+        if not self.daily_list.tasks:
+            return
+
+        task_widget = self.query_one(TaskListWidget)
+        task = self.daily_list.tasks[task_widget.selected_index]
+
+        # Show input for estimate
+        container = self.query_one("#input_container")
+
+        # Format current estimate for display
+        current_est = ""
+        if task.estimated_seconds:
+            if task.estimated_seconds < 60:
+                current_est = f" [current: {task.estimated_seconds}s]"
+            else:
+                mins = task.estimated_seconds // 60
+                secs = task.estimated_seconds % 60
+                if secs > 0:
+                    current_est = f" [current: {mins}m{secs}s]"
+                else:
+                    current_est = f" [current: {mins}m]"
+
+        input_widget = Input(
+            placeholder=f"Enter estimate (e.g., 30, 90s, 1h30m){current_est}" if current_est else "Enter estimate (e.g., 30, 90s, 1h30m)"
+        )
+        container.mount(input_widget)
+        input_widget.focus()
+
+        # Mark that we're setting estimate
+        self.setting_estimate = True
+        self.estimate_task_index = task_widget.selected_index
+
+    def action_add_time(self) -> None:
+        """Manually add time to the selected task."""
+        if not self.daily_list.tasks:
+            return
+
+        task_widget = self.query_one(TaskListWidget)
+
+        # Show input for time to add
+        container = self.query_one("#input_container")
+        input_widget = Input(placeholder="Add time (e.g., 15, 90s, 30m, 1h)")
+        container.mount(input_widget)
+        input_widget.focus()
+
+        # Mark that we're adding time
+        self.adding_time = True
+        self.time_task_index = task_widget.selected_index
+
+    def action_subtract_time(self) -> None:
+        """Manually subtract time from the selected task."""
+        if not self.daily_list.tasks:
+            return
+
+        task_widget = self.query_one(TaskListWidget)
+
+        # Show input for time to subtract
+        container = self.query_one("#input_container")
+        input_widget = Input(placeholder="Subtract time (e.g., 15, 90s, 30m, 1h)")
+        container.mount(input_widget)
+        input_widget.focus()
+
+        # Mark that we're subtracting time
+        self.subtracting_time = True
+        self.time_task_index = task_widget.selected_index
+
+    def action_show_statistics(self) -> None:
+        """Show the statistics modal screen."""
+        daily_score = self.scoring_system.calculate_daily_score(self.daily_list)
+        streak = self.scoring_system.get_streak(self.current_date)
+        self.push_screen(StatisticsScreen(daily_score, streak, self.scoring_system))
 
     def on_key(self, event: events.Key) -> None:
         """Handle special keys."""
@@ -648,6 +965,11 @@ class TaskJournalApp(App):
                 self.editing_task = False
                 self.moving_task = False
                 self.task_to_move = None
+                self.setting_estimate = False
+                self.adding_time = False
+                self.subtracting_time = False
+                self.estimate_task_index = None
+                self.time_task_index = None
                 event.prevent_default()
             return
 
@@ -672,6 +994,9 @@ class TaskJournalApp(App):
 
         # Handle escape to cancel any input
         elif event.key == "escape":
+            # Don't handle escape if a modal screen is active
+            if len(self.screen_stack) > 1:
+                return
             container = self.query_one("#input_container")
             inputs = container.query(Input)
             if inputs:
@@ -681,6 +1006,11 @@ class TaskJournalApp(App):
                 self.editing_task = False
                 self.moving_task = False
                 self.task_to_move = None
+                self.setting_estimate = False
+                self.adding_time = False
+                self.subtracting_time = False
+                self.estimate_task_index = None
+                self.time_task_index = None
 
 
 def main():

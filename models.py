@@ -1,7 +1,7 @@
 """Data models for task management."""
 from dataclasses import dataclass, field
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 
 
 @dataclass
@@ -10,11 +10,19 @@ class Task:
 
     Tasks are organized hierarchically using indent_level, stored in a flat list.
     The folded attribute controls whether child tasks (higher indent) are visible.
+
+    Time tracking fields:
+    - estimated_seconds: User's estimate for task duration in seconds
+    - actual_seconds: Accumulated time spent on task in seconds
+    - timer_start: When timer was started (None if not running)
     """
     content: str
     completed: bool = False
     indent_level: int = 0
     folded: bool = False
+    estimated_seconds: Optional[int] = None
+    actual_seconds: int = 0
+    timer_start: Optional[datetime] = None
 
     def toggle_complete(self):
         """Toggle completion status."""
@@ -24,6 +32,26 @@ class Task:
         """Toggle fold status."""
         self.folded = not self.folded
 
+    @staticmethod
+    def _format_seconds(seconds: int) -> str:
+        """Format seconds into human-readable string for markdown."""
+        if seconds < 60:
+            return f"{seconds}s"
+
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+
+        parts = []
+        if hours > 0:
+            parts.append(f"{hours}h")
+        if minutes > 0:
+            parts.append(f"{minutes}m")
+        if secs > 0:
+            parts.append(f"{secs}s")
+
+        return "".join(parts)
+
     def to_markdown(self) -> str:
         """Convert task to markdown format."""
         indent = "  " * self.indent_level
@@ -31,7 +59,17 @@ class Task:
         prefix = "~~" if self.completed else ""
         suffix = "~~" if self.completed else ""
         fold_marker = " <!-- folded -->" if self.folded else ""
-        return f"{indent}- {checkbox} {prefix}{self.content}{suffix}{fold_marker}"
+
+        # Add time tracking metadata
+        time_parts = []
+        if self.estimated_seconds is not None:
+            time_parts.append(f"est:{self._format_seconds(self.estimated_seconds)}")
+        if self.actual_seconds > 0:
+            time_parts.append(f"actual:{self._format_seconds(self.actual_seconds)}")
+
+        time_marker = f" <!-- {', '.join(time_parts)} -->" if time_parts else ""
+
+        return f"{indent}- {checkbox} {prefix}{self.content}{suffix}{fold_marker}{time_marker}"
 
 
 @dataclass

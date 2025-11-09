@@ -4,6 +4,7 @@ from textual.screen import Screen
 from textual.widgets import Static
 from textual.containers import VerticalScroll
 from textual.binding import Binding
+from textual import events
 
 
 class HelpScreen(Screen):
@@ -11,7 +12,6 @@ class HelpScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close", show=False),
-        Binding("h", "dismiss", "Close", show=False),
     ]
 
     CSS = """
@@ -56,17 +56,36 @@ class HelpScreen(Screen):
 ←/→ or h/l    Previous/next day
 Shift+←       Previous day with tasks (skip empty days)
 Shift+→       Next day with tasks (skip empty days)
-t             Jump to today
+g             Jump to today
 
 [bold]Task Operations[/bold]
 a             Add new task
               • On child task: adds sibling below at same indent
               • On parent task: adds new parent at bottom
-e             Edit selected task
+r             Edit/rename selected task
 Space or x    Toggle task completion (or selection in visual mode)
 d             Delete selected task (or all selected in visual mode)
 Tab           Indent task (nest under previous)
 Shift+Tab     Unindent task
+
+[bold]Time Tracking[/bold]
+t             Toggle timer (start/stop) for selected task
+              • Press once to START (shows [1:23/30m] live)
+              • Press again to STOP (adds elapsed time to task)
+              • Timer runs in background - works across tasks/days
+              • Only adds time if ≥1 minute elapsed
+Shift+T       Clear ALL time tracking from task
+              • Removes estimate, actual time, and running timer
+              • Use to completely reset time tracking
+e             Set/edit time estimate for task
+              • Formats: 30, 90s, 1h30m, 2.5m, 1h30m15s
+              • Lower estimates = higher score multiplier!
++             Manually add time to task (e.g., +15)
+-             Manually subtract time from task
+Shift+S       Show detailed statistics screen
+              • Daily score, streak, efficiency
+              • Tasks beat vs. over estimate
+              • Scoring formula explanation
 
 [bold]Visual Selection Mode[/bold]
 v             Enter/exit visual selection mode
@@ -93,8 +112,15 @@ m             Move task to another day
 h             Show this help
 q             Quit
 
-[dim]Press Esc or H to close this help[/dim]"""
+[dim]Press Esc to close this help[/dim]"""
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events - block all except Esc and arrow keys."""
+        # Allow Esc (handled by binding) and arrow keys (for scrolling)
+        if event.key not in ("escape", "up", "down"):
+            event.prevent_default()
+            event.stop()
 
     def action_dismiss(self) -> None:
         """Close the help screen."""
-        self.app.pop_screen()
+        self.dismiss()

@@ -1,19 +1,98 @@
 """Task list widget for displaying and navigating tasks."""
 import re
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from textual.widgets import Static
 from models import DailyTaskList, Task
+
+if TYPE_CHECKING:
+    from business_logic.time_tracker import TimeTracker
+    from business_logic.scoring import ScoringSystem
 
 
 class TaskListWidget(Static):
     """Widget to display the list of tasks."""
 
-    def __init__(self, daily_list: DailyTaskList, selection_mode: bool = False, selected_task_indices: set = None):
+    def __init__(self, daily_list: DailyTaskList, selection_mode: bool = False, selected_task_indices: set = None, time_tracker: Optional['TimeTracker'] = None, scoring_system: Optional['ScoringSystem'] = None):
         super().__init__()
         self.daily_list = daily_list
         self.selected_index = 0
         self.selection_mode = selection_mode
         self.selected_task_indices = selected_task_indices or set()
+        self.time_tracker = time_tracker
+        self.scoring_system = scoring_system
+
+    @staticmethod
+    def _format_time(seconds: int) -> str:
+        """Format seconds into readable string."""
+        if seconds < 60:
+            return f"{seconds}s"
+        mins = seconds // 60
+        secs = seconds % 60
+        if secs > 0:
+            return f"{mins}m{secs}s"
+        return f"{mins}m"
+
+    def format_time_display(self, task: Task, task_index: int) -> str:
+        """
+        Format time tracking display for a task.
+
+        Returns Rich-formatted string like:
+        - Active timer: [yellow][1:23/30m][/yellow] (shows live M:SS)
+        - Completed, beat estimate: [green][30m→25m +12][/green]
+        - Completed, over estimate: [red][30m→28m45s -7][/red]
+        - Has estimate only: [dim][est:30m][/dim]
+        """
+        if not self.time_tracker or not self.scoring_system:
+            return ""
+
+        # Check if timer is running for this task
+        is_timer_running = self.time_tracker.is_timer_running(task_index)
+
+        # Don't show anything if no estimate, no actual time, and timer isn't running
+        if task.estimated_seconds is None and task.actual_seconds == 0 and not is_timer_running:
+            return ""
+
+        if is_timer_running:
+            # Show elapsed time in M:SS format for live feedback
+            elapsed_seconds = self.time_tracker.get_elapsed_seconds(task)
+            elapsed_minutes = elapsed_seconds // 60
+            elapsed_secs = elapsed_seconds % 60
+
+            # Show previously accumulated time if any
+            if task.actual_seconds > 0:
+                elapsed_str = f"{elapsed_minutes}:{elapsed_secs:02d} (+{self._format_time(task.actual_seconds)})"
+            else:
+                elapsed_str = f"{elapsed_minutes}:{elapsed_secs:02d}"
+
+            est_str = self._format_time(task.estimated_seconds) if task.estimated_seconds else "??"
+            return f" [yellow]\\[{elapsed_str}/{est_str}][/yellow]"
+
+        # If task is completed and has estimate, show score
+        if task.completed and task.estimated_seconds is not None:
+            score = self.scoring_system.calculate_task_score(task)
+            score_str = f"+{int(score)}" if score >= 0 else f"{int(score)}"
+
+            est_str = self._format_time(task.estimated_seconds)
+            act_str = self._format_time(task.actual_seconds)
+
+            if task.actual_seconds <= task.estimated_seconds:
+                # Beat the estimate
+                return f" [green]\\[{est_str}→{act_str} {score_str}][/green]"
+            else:
+                # Over estimate
+                return f" [red]\\[{est_str}→{act_str} {score_str}][/red]"
+
+        # Just has estimate or actual time
+        parts = []
+        if task.estimated_seconds is not None:
+            parts.append(f"est:{self._format_time(task.estimated_seconds)}")
+        if task.actual_seconds > 0:
+            parts.append(f"act:{self._format_time(task.actual_seconds)}")
+
+        if parts:
+            return f" [dim]\\[{', '.join(parts)}][/dim]"
+
+        return ""
 
     def has_children(self, index: int) -> bool:
         """Check if task at index has children (next task has higher indent)."""
@@ -143,6 +222,10 @@ class TaskListWidget(Static):
             # Escape brackets so they're not interpreted as markup
             checkbox = "\\[x]" if task.completed else "\\[ ]"
 
+            # Add time tracking display
+            time_display = self.format_time_display(task, i)
+            task_content_with_time = task.content + time_display
+
             # Calculate prefix length (visible characters before content)
             # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
             prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
@@ -151,11 +234,11 @@ class TaskListWidget(Static):
             # Ensure we have at least 20 chars for content, otherwise don't wrap
             if available_width - prefix_length < 20:
                 # Terminal too narrow for meaningful wrapping
-                wrapped_lines = [task.content]
+                wrapped_lines = [task_content_with_time]
             else:
                 content_width = available_width - prefix_length
                 # Wrap the content (returns plain wrapped lines without indent)
-                wrapped_lines = self.wrap_text(task.content, content_width)
+                wrapped_lines = self.wrap_text(task_content_with_time, content_width)
 
             # Apply strikethrough if completed
             if task.completed:
@@ -228,13 +311,17 @@ class TaskListWidget(Static):
             # marker (1) + selection_indicator (1) + space (1) + indent + fold_indicator (2) + checkbox (3) + space (1)
             prefix_length = 1 + 1 + 1 + len(indent) + 2 + 3 + 1
 
+            # Add time tracking display (must match render())
+            time_display = self.format_time_display(task, i)
+            task_content_with_time = task.content + time_display
+
             # Same width validation as render()
             if available_width - prefix_length < 20:
                 # Terminal too narrow, no wrapping
-                wrapped_lines = [task.content]
+                wrapped_lines = [task_content_with_time]
             else:
                 content_width = available_width - prefix_length
-                wrapped_lines = self.wrap_text(task.content, content_width)
+                wrapped_lines = self.wrap_text(task_content_with_time, content_width)
 
             visible_line += len(wrapped_lines)
 
