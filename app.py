@@ -106,6 +106,8 @@ class TaskJournalApp(App):
         self.editing_task = False
         self.moving_task = False
         self.task_to_move = None
+        self.move_group_start = None
+        self.move_group_end = None
         self.new_task_insert_index = None
         self.new_task_indent_level = 0
 
@@ -201,11 +203,21 @@ class TaskJournalApp(App):
             self.save_and_refresh()
 
     def action_delete_task(self) -> None:
-        """Delete the selected task."""
+        """Delete the selected task and all its children."""
         task_widget = self.query_one(TaskListWidget)
-        if self.daily_list.tasks:
-            self.daily_list.remove_task(task_widget.selected_index)
-            self.save_and_refresh()
+        if not self.daily_list.tasks:
+            return
+
+        # Get the task group (parent + all children)
+        start_idx, end_idx = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
+
+        # Delete all tasks in the group (in reverse to maintain indices)
+        for i in range(end_idx, start_idx - 1, -1):
+            self.daily_list.remove_task(i)
+
+        self.save_and_refresh()
 
     def action_indent(self) -> None:
         """Indent the selected task and all its children."""
@@ -410,14 +422,23 @@ class TaskJournalApp(App):
         input_widget.focus()
 
     def action_move_task(self) -> None:
-        """Move task to another day."""
+        """Move task and all its children to another day."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
         if not task or self.moving_task:
             return
 
+        # Get the task group (parent + all children)
+        start_idx, end_idx = TaskGroupOperations.get_task_group(
+            self.daily_list.tasks, task_widget.selected_index
+        )
+
+        # Store the group indices for later
         self.moving_task = True
-        self.task_to_move = task
+        self.task_to_move = task  # Keep for backwards compatibility
+        self.move_group_start = start_idx
+        self.move_group_end = end_idx
+
         container = self.query_one("#input_container")
         input_widget = Input(placeholder="Enter date (tomorrow, monday, nov 10, +1, 2025-01-15)...")
         container.mount(input_widget)
@@ -456,16 +477,20 @@ class TaskJournalApp(App):
 
                 if target_date:
                     try:
-                        # Move the task
-                        task_widget = self.query_one(TaskListWidget)
-                        moved_task = self.handler.move_task_to_date(
-                            self.task_to_move,
-                            self.current_date,
-                            target_date
-                        )
+                        # Move all tasks in the group
+                        tasks_to_move = self.daily_list.tasks[self.move_group_start:self.move_group_end + 1]
 
-                        # Remove from current day
-                        self.daily_list.remove_task(task_widget.selected_index)
+                        for task in tasks_to_move:
+                            self.handler.move_task_to_date(
+                                task,
+                                self.current_date,
+                                target_date
+                            )
+
+                        # Remove all tasks in the group from current day (in reverse)
+                        for i in range(self.move_group_end, self.move_group_start - 1, -1):
+                            self.daily_list.remove_task(i)
+
                         self.save_and_refresh()
 
                     except (ValueError, TypeError, IOError) as e:
@@ -475,6 +500,8 @@ class TaskJournalApp(App):
 
             self.moving_task = False
             self.task_to_move = None
+            self.move_group_start = None
+            self.move_group_end = None
 
         # Remove input widget
         event.input.remove()
