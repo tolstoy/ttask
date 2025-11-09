@@ -9,6 +9,11 @@ dist/
 build/
 .pytest_cache/
 
+# Testing & Coverage
+.coverage
+htmlcov/
+.coverage.*
+
 # Virtual Environment
 venv/
 env/
