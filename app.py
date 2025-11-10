@@ -635,14 +635,43 @@ class TaskJournalApp(App):
         task_widget = self.query_one(TaskListWidget)
         selected_task = task_widget.get_selected_task()
 
+        from business_logic.task_sorter import TaskSorter
+
         if selected_task and selected_task.indent_level > 0:
-            # Selected task is a child - insert right below it at same indent
-            self.new_task_insert_index = task_widget.selected_index + 1
+            # Selected task is a child - insert at end of incomplete siblings
             self.new_task_indent_level = selected_task.indent_level
+
+            # Find the parent context and sibling range
+            parent_index, sibling_start, sibling_end = TaskSorter.find_parent_context(
+                self.daily_list.tasks, task_widget.selected_index
+            )
+
+            # Find first completed sibling at same indent level
+            first_completed = TaskSorter.find_completion_boundary(
+                self.daily_list.tasks, sibling_start, sibling_end, self.new_task_indent_level
+            )
+
+            if first_completed is not None:
+                # Insert before first completed sibling
+                self.new_task_insert_index = first_completed
+            else:
+                # No completed siblings, insert at end of siblings
+                self.new_task_insert_index = sibling_end
         else:
-            # Selected task is a parent (or no selection) - add at bottom
-            self.new_task_insert_index = None  # None means append at end
+            # Top-level task - insert at end of incomplete top-level tasks
             self.new_task_indent_level = 0
+
+            # Find first completed top-level task
+            first_completed = TaskSorter.find_completion_boundary(
+                self.daily_list.tasks, 0, len(self.daily_list.tasks), 0
+            )
+
+            if first_completed is not None:
+                # Insert before first completed task
+                self.new_task_insert_index = first_completed
+            else:
+                # No completed tasks, append at end
+                self.new_task_insert_index = None
 
         self.adding_task = True
         container = self.query_one("#input_container")
