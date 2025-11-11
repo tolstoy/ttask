@@ -65,10 +65,29 @@ class MarkdownHandler:
             # Return empty task list rather than crashing
             return daily_list
 
+        # Pattern to match divider lines: <!-- divider --> or <!-- divider: label -->
+        divider_pattern = re.compile(r'^(\s*)<!--\s*divider(?:\s*:\s*(.+?))?\s*-->$', re.MULTILINE)
+
         # Pattern to match task lines: optional indent, dash, checkbox, optional strikethrough, content, optional markers
         # Matches: "  - [ ] task" or "  - [x] ~~task~~" or "  - [ ] task <!-- folded -->" or with time metadata
         task_pattern = re.compile(r'^(\s*)- \[([ x])\] (?:~~)?(.+?)(?:~~)?(?:\s*<!--.*?-->)*$', re.MULTILINE)
 
+        # Collect all matches (dividers and tasks) with their positions
+        items = []
+
+        # Find dividers
+        for match in divider_pattern.finditer(content):
+            indent_str, divider_label = match.groups()
+            indent_level = len(indent_str) // 2  # 2 spaces per indent level
+
+            divider = Task(
+                content=divider_label or "",
+                indent_level=indent_level,
+                is_divider=True
+            )
+            items.append((match.start(), divider))
+
+        # Find regular tasks
         for match in task_pattern.finditer(content):
             indent_str, checkbox, task_content = match.groups()
             indent_level = len(indent_str) // 2  # 2 spaces per indent level
@@ -101,7 +120,14 @@ class MarkdownHandler:
                 estimated_seconds=estimated_seconds,
                 actual_seconds=actual_seconds
             )
-            daily_list.tasks.append(task)
+            items.append((match.start(), task))
+
+        # Sort by position in file to maintain order
+        items.sort(key=lambda x: x[0])
+
+        # Add tasks and dividers in order
+        for _, item in items:
+            daily_list.tasks.append(item)
 
         return daily_list
 

@@ -16,11 +16,15 @@ class Task:
     - estimated_seconds: User's estimate for task duration in seconds
     - actual_seconds: Accumulated time spent on task in seconds
     - timer_start: When timer was started (None if not running)
+
+    Divider:
+    - is_divider: If True, this is a manual divider line (not a regular task)
     """
     content: str
     completed: bool = False
     indent_level: int = 0
     folded: bool = False
+    is_divider: bool = False
     estimated_seconds: Optional[int] = None
     actual_seconds: int = 0
     timer_start: Optional[datetime] = None
@@ -36,6 +40,15 @@ class Task:
     def to_markdown(self) -> str:
         """Convert task to markdown format."""
         indent = "  " * self.indent_level
+
+        # Handle dividers differently
+        if self.is_divider:
+            if self.content:
+                return f"{indent}<!-- divider: {self.content} -->"
+            else:
+                return f"{indent}<!-- divider -->"
+
+        # Regular task formatting
         checkbox = "[x]" if self.completed else "[ ]"
         prefix = "~~" if self.completed else ""
         suffix = "~~" if self.completed else ""

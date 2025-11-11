@@ -220,6 +220,10 @@ class ScoringSystem:
         total_actual_minutes = 0
 
         for task in task_list.tasks:
+            # Skip dividers in scoring
+            if task.is_divider:
+                continue
+
             if task.completed:
                 tasks_completed += 1
 

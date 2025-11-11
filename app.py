@@ -101,6 +101,7 @@ class TaskJournalApp(App):
         Binding("m", "move_task", "Move", show=False),
         Binding("r", "edit_task", "Edit", show=False),
         Binding("v", "toggle_selection_mode", "Visual", show=False),
+        Binding("D", "insert_divider", "Divider", show=False),
         # Time tracking bindings
         Binding("t", "toggle_timer", "Timer", show=False),
         Binding("T", "clear_timer", "Clear Timer", show=False),
@@ -123,6 +124,7 @@ class TaskJournalApp(App):
         self.time_tracker.sync_timer_with_task_list(self.daily_list)
 
         self.adding_task = False
+        self.inserting_divider = False
         self.editing_task = False
         self.moving_task = False
         self.task_to_move = None
@@ -308,7 +310,7 @@ class TaskJournalApp(App):
         """Toggle completion of selected task."""
         task_widget = self.query_one(TaskListWidget)
         task = task_widget.get_selected_task()
-        if task:
+        if task and not task.is_divider:
             # Toggle completion status
             task.toggle_complete()
 
@@ -679,6 +681,31 @@ class TaskJournalApp(App):
         container.mount(input_widget)
         input_widget.focus()
 
+    def action_insert_divider(self) -> None:
+        """Show input to insert a manual divider."""
+        if self.adding_task:
+            return
+
+        # Determine where to insert the divider
+        task_widget = self.query_one(TaskListWidget)
+        selected_task = task_widget.get_selected_task()
+
+        if selected_task:
+            # Insert after selected task with same indent
+            self.new_task_insert_index = task_widget.selected_index + 1
+            self.new_task_indent_level = selected_task.indent_level
+        else:
+            # No selection, append at end
+            self.new_task_insert_index = None
+            self.new_task_indent_level = 0
+
+        self.adding_task = True
+        self.inserting_divider = True
+        container = self.query_one("#input_container")
+        input_widget = Input(placeholder="Enter divider label (optional)...")
+        container.mount(input_widget)
+        input_widget.focus()
+
     def action_edit_task(self) -> None:
         """Edit the selected task."""
         task_widget = self.query_one(TaskListWidget)
@@ -733,13 +760,27 @@ class TaskJournalApp(App):
     def _handle_add_task_input(self, value: str) -> None:
         """Handle input for adding a new task."""
         if value:
-            self.daily_list.add_task(
-                value,
-                indent_level=self.new_task_indent_level,
-                index=self.new_task_insert_index
-            )
+            if self.inserting_divider:
+                # Insert a divider
+                divider = Task(
+                    content=value,  # Label is optional, can be empty
+                    indent_level=self.new_task_indent_level,
+                    is_divider=True
+                )
+                if self.new_task_insert_index is None:
+                    self.daily_list.tasks.append(divider)
+                else:
+                    self.daily_list.tasks.insert(self.new_task_insert_index, divider)
+            else:
+                # Insert a regular task
+                self.daily_list.add_task(
+                    value,
+                    indent_level=self.new_task_indent_level,
+                    index=self.new_task_insert_index
+                )
             self.save_and_refresh()
         self.adding_task = False
+        self.inserting_divider = False
         # Reset insert position and indent
         self.new_task_insert_index = None
         self.new_task_indent_level = 0
@@ -878,6 +919,10 @@ class TaskJournalApp(App):
         task_widget = self.query_one(TaskListWidget)
         task = self.daily_list.tasks[task_widget.selected_index]
 
+        # Skip dividers
+        if task.is_divider:
+            return
+
         is_running, seconds_added = self.time_tracker.toggle_timer(
             self.daily_list,
             task_widget.selected_index
@@ -954,6 +999,10 @@ class TaskJournalApp(App):
         task_widget = self.query_one(TaskListWidget)
         task = self.daily_list.tasks[task_widget.selected_index]
 
+        # Skip dividers
+        if task.is_divider:
+            return
+
         # Show input for estimate
         container = self.query_one("#input_container")
 
@@ -1013,6 +1062,7 @@ class TaskJournalApp(App):
     def _clear_input_state(self) -> None:
         """Clear all input mode state flags."""
         self.adding_task = False
+        self.inserting_divider = False
         self.editing_task = False
         self.moving_task = False
         self.task_to_move = None

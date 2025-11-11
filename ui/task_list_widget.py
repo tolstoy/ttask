@@ -32,7 +32,7 @@ class TaskListWidget(Static):
         - Completed, over estimate: [red][30m→28m45s -7][/red]
         - Has estimate only: [dim][est:30m][/dim]
         """
-        if not self.time_tracker or not self.scoring_system:
+        if not self.time_tracker or not self.scoring_system or task.is_divider:
             return ""
 
         # Check if timer is running for this task
@@ -331,6 +331,33 @@ class TaskListWidget(Static):
             indent_with_lines = ""
             for line_segment in vertical_lines:
                 indent_with_lines += line_segment
+
+            # Handle dividers differently
+            if task.is_divider:
+                # Render divider line
+                prefix_length = 1 + 1 + 1 + len(indent_with_lines)  # marker + selection + space + indent
+                divider_width = max(10, available_width - prefix_length)
+
+                # Create divider line with optional label
+                if task.content:
+                    # Divider with label: "┄┄┄ Label ┄┄┄"
+                    label_with_spaces = f" {task.content} "
+                    remaining_width = divider_width - len(label_with_spaces)
+                    left_dashes = remaining_width // 2
+                    right_dashes = remaining_width - left_dashes
+                    divider_content = f"{'┄' * left_dashes}{label_with_spaces}{'┄' * right_dashes}"
+                else:
+                    # Divider without label: just dashes
+                    divider_content = '┄' * divider_width
+
+                # Apply purple color
+                if i == self.selected_index:
+                    divider_line = f"[#ff006e on #2d2d44]{marker}{selection_indicator} [dim]{indent_with_lines}[/dim][#8b5cf6]{divider_content}[/#8b5cf6][/#ff006e on #2d2d44]"
+                else:
+                    divider_line = f"{marker}{selection_indicator} [dim]{indent_with_lines}[/dim][#8b5cf6]{divider_content}[/#8b5cf6]"
+
+                lines.append(divider_line)
+                continue  # Skip normal task rendering
 
             # Add fold indicator - always use 2 chars for consistent alignment
             fold_indicator = "  "  # Default: two spaces
