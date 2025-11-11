@@ -142,6 +142,9 @@ class TaskJournalApp(App):
         self.estimate_task_index = None
         self.time_task_index = None
         self.timer_refresh_interval = None  # For auto-refreshing timer display
+        # File watching state
+        self.last_file_mtime = None  # Track file modification time for external changes
+        self.file_watch_interval = None  # For checking file changes
         # Undo state
         self.undo_stack = []  # List of (operation, data, date) tuples
         self.max_undo_depth = 20  # Keep last 20 operations
@@ -163,6 +166,9 @@ class TaskJournalApp(App):
         self.update_footer()
         # Start auto-refresh timer for live timer updates (every second)
         self.timer_refresh_interval = self.set_interval(1.0, self._refresh_timer_display)
+        # Start file watcher for external changes (every second)
+        self._update_file_mtime()  # Initialize with current file time
+        self.file_watch_interval = self.set_interval(1.0, self._check_file_changes)
 
     def _refresh_timer_display(self) -> None:
         """Refresh the task list display if a timer is running (for live seconds update)."""
@@ -174,6 +180,67 @@ class TaskJournalApp(App):
                 # Widget not accessible (e.g., modal is open)
                 # Timer keeps running in background, skip this display update
                 pass
+
+    def _update_file_mtime(self) -> None:
+        """Update the stored modification time for current date's file."""
+        from pathlib import Path
+        file_path = self.handler.get_file_path(self.current_date)
+        try:
+            if file_path.exists():
+                self.last_file_mtime = file_path.stat().st_mtime
+            else:
+                self.last_file_mtime = None
+        except Exception:
+            self.last_file_mtime = None
+
+    def _check_file_changes(self) -> None:
+        """Check if current date's file has been modified externally and reload if needed."""
+        from pathlib import Path
+        file_path = self.handler.get_file_path(self.current_date)
+
+        try:
+            if not file_path.exists():
+                # File was deleted externally
+                if self.last_file_mtime is not None:
+                    # Had a file before, now gone - reload to empty list
+                    self._reload_from_disk()
+                return
+
+            current_mtime = file_path.stat().st_mtime
+
+            # Check if file has been modified since last check
+            if self.last_file_mtime is not None and current_mtime > self.last_file_mtime:
+                # File changed externally, reload
+                self.last_file_mtime = current_mtime
+                self._reload_from_disk()
+            elif self.last_file_mtime is None:
+                # First check, just store the time
+                self.last_file_mtime = current_mtime
+
+        except Exception:
+            # File access error, skip this check
+            pass
+
+    def _reload_from_disk(self) -> None:
+        """Reload tasks from disk, preserving current selection."""
+        # Save current selection
+        task_widget = self.query_one(TaskListWidget)
+        old_selection = task_widget.selected_index
+
+        # Reload from disk
+        self.daily_list = self.handler.load_tasks(self.current_date)
+
+        # Sync timer state with reloaded tasks
+        self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
+        # Restore selection (or clamp to valid range)
+        if len(self.daily_list.tasks) > 0:
+            task_widget.selected_index = min(old_selection, len(self.daily_list.tasks) - 1)
+        else:
+            task_widget.selected_index = 0
+
+        # Refresh UI
+        self.refresh_task_list()
 
     def update_date_header(self) -> None:
         """Update the date header."""
@@ -310,6 +377,10 @@ class TaskJournalApp(App):
 
         # Now save the merged list
         self.save_current_tasks()
+
+        # Update file mtime to prevent reload loop
+        self._update_file_mtime()
+
         self.refresh_task_list()
 
     def action_move_down(self) -> None:
@@ -558,6 +629,9 @@ class TaskJournalApp(App):
 
         # Sync timer state with newly loaded day
         self.time_tracker.sync_timer_with_task_list(self.daily_list)
+
+        # Update file watch for new date
+        self._update_file_mtime()
 
         # Exit selection mode when changing days
         self.selection_mode = False
