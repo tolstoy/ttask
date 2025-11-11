@@ -38,6 +38,105 @@ ttask
 ./taskjournal
 ```
 
+## Quick Task Entry (Global Shortcut)
+
+For ultra-fast task capture without opening tTask, you can set up a global keyboard shortcut using Hammerspoon. This allows you to add tasks from anywhere on your Mac with a single keystroke.
+
+### Setup
+
+1. **Install Hammerspoon** (if not already installed):
+   ```bash
+   brew install hammerspoon
+   ```
+   Or download from [hammerspoon.org](https://www.hammerspoon.org/)
+
+2. **Create the quick-add script** at `~/tasks/add_task_quick.py`:
+   ```python
+   #!/usr/bin/env python3
+   import sys
+   from pathlib import Path
+   from datetime import date
+
+   def add_task_quick(task_content: str):
+       if not task_content.strip():
+           return
+
+       tasks_dir = Path.home() / "tasks"
+       tasks_dir.mkdir(exist_ok=True)
+
+       today = date.today()
+       filepath = tasks_dir / f"{today.strftime('%Y-%m-%d')}.md"
+
+       if not filepath.exists():
+           filepath.write_text(f"# {today.strftime('%Y-%m-%d')}\n\n")
+
+       with open(filepath, 'a') as f:
+           f.write(f"- [ ] {task_content}\n")
+
+   if __name__ == "__main__":
+       if len(sys.argv) > 1:
+           add_task_quick(" ".join(sys.argv[1:]))
+   ```
+
+3. **Make it executable**:
+   ```bash
+   chmod +x ~/tasks/add_task_quick.py
+   ```
+
+4. **Add to Hammerspoon config** (`~/.hammerspoon/init.lua`):
+   ```lua
+   -- Quick task adder for tTask (Cmd+Shift+T)
+   hs.hotkey.bind({"cmd", "shift"}, "T", function()
+       local button, task = hs.dialog.textPrompt(
+           "Add Task to tTask",
+           "Enter task description:",
+           "",
+           "Add", "Cancel"
+       )
+
+       if button == "Add" and task ~= "" then
+           local scriptPath = os.getenv("HOME") .. "/tasks/add_task_quick.py"
+           local pythonPath = "/usr/bin/python3"  -- or /opt/homebrew/bin/python3
+
+           hs.task.new(pythonPath, function(exitCode, stdOut, stdErr)
+               if exitCode == 0 then
+                   hs.alert.show("✓ Task added to today")
+               else
+                   hs.alert.show("✗ Failed to add task")
+               end
+           end, {scriptPath, task}):start()
+       end
+   end)
+
+   hs.alert.show("tTask quick-add loaded!")
+   ```
+
+5. **Launch Hammerspoon** and grant accessibility permissions when prompted
+
+6. **Reload Hammerspoon config** (click menu bar icon → Reload Config)
+
+### Usage
+
+Press **⌘⇧T** (Cmd+Shift+T) from anywhere on your Mac to:
+1. Pop up a task entry dialog
+2. Type your task description
+3. Press Enter or click "Add"
+4. Task appears in tTask instantly (within ~1 second)
+
+### How It Works
+
+- The script appends tasks directly to `~/tasks/YYYY-MM-DD.md` in standard markdown format
+- tTask automatically detects the file change and reloads (no restart needed)
+- Tasks are seamlessly merged with your existing task list
+- Perfect for quick capture without context switching
+
+### Customization
+
+To change the keyboard shortcut, edit the `hs.hotkey.bind` line in your Hammerspoon config:
+- `{"cmd", "shift"}, "T"` = Cmd+Shift+T
+- `{"cmd", "alt"}, "T"` = Cmd+Alt+T
+- `{"ctrl", "shift"}, "T"` = Ctrl+Shift+T
+
 ## Keyboard Shortcuts
 
 ### Navigation

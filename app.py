@@ -360,10 +360,13 @@ class TaskJournalApp(App):
         Helper method to reduce duplication of the common pattern:
         save_current_tasks() followed by refresh_task_list().
 
-        Reloads from disk before saving to merge any external changes
-        (e.g., tasks added via Hammerspoon quick-add).
+        Saves first, then checks for external changes and merges them.
+        This order prevents deleted tasks from being re-added.
         """
-        # Reload from disk to get any external changes
+        # Save current state first (including any deletions)
+        self.save_current_tasks()
+
+        # Reload from disk to check for external changes
         disk_list = self.handler.load_tasks(self.current_date)
 
         # Merge: find tasks on disk that aren't in memory (externally added)
@@ -371,12 +374,10 @@ class TaskJournalApp(App):
         memory_contents = {task.content for task in self.daily_list.tasks}
         external_tasks = [task for task in disk_list.tasks if task.content not in memory_contents]
 
-        # Append externally-added tasks to our in-memory list
+        # If external tasks were added, merge and save again
         if external_tasks:
             self.daily_list.tasks.extend(external_tasks)
-
-        # Now save the merged list
-        self.save_current_tasks()
+            self.save_current_tasks()
 
         # Update file mtime to prevent reload loop
         self._update_file_mtime()
