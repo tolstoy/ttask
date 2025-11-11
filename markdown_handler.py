@@ -165,7 +165,7 @@ class MarkdownHandler:
         # Add task to destination (create a new task with same properties)
         new_task = Task(
             content=task.content,
-            completed=False,  # Reset completion status
+            completed=task.completed,  # Preserve completion status
             indent_level=task.indent_level,
             folded=task.folded,  # Preserve fold status
             estimated_seconds=task.estimated_seconds,  # Preserve estimate

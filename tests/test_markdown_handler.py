@@ -544,8 +544,8 @@ class TestMoveTaskToDate:
         assert len(to_list.tasks) == 1
         assert to_list.tasks[0].content == "Task to move"
 
-    def test_move_task_resets_completion(self, markdown_handler):
-        """Test that moving task resets completion status."""
+    def test_move_task_preserves_completion(self, markdown_handler):
+        """Test that moving task preserves completion status."""
         from_date = date(2025, 1, 15)
         to_date = date(2025, 1, 16)
 
@@ -559,7 +559,7 @@ class TestMoveTaskToDate:
         markdown_handler.move_task_to_date(task, from_date, to_date)
 
         to_list = markdown_handler.load_tasks(to_date)
-        assert to_list.tasks[0].completed is False
+        assert to_list.tasks[0].completed is True
 
     def test_move_task_resets_actual_time(self, markdown_handler):
         """Test that moving task resets actual time."""
