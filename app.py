@@ -478,8 +478,10 @@ class TaskJournalApp(App):
             deleted_tasks: List of (index, task) tuples to restore
         """
         # Restore deleted tasks (data is list of (index, task) tuples)
-        # Sort by index to restore in correct order
-        for idx, task in sorted(deleted_tasks):
+        # Sort by index in REVERSE (highest to lowest) to prevent index shifting
+        # When inserting from highest index down, each insertion only affects
+        # lower indices which we haven't processed yet
+        for idx, task in sorted(deleted_tasks, reverse=True):
             self.daily_list.tasks.insert(idx, task)
 
     def action_undo(self) -> None:
