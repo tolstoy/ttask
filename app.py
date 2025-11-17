@@ -547,8 +547,71 @@ class TaskJournalApp(App):
             self.save_and_refresh()
 
     def action_move_task_up(self) -> None:
-        """Move selected task (and its children) up, only within same indent level."""
+        """Move selected task(s) (and their children) up, only within same indent level."""
         task_widget = self.query_one(TaskListWidget)
+
+        # Handle multiple selected tasks in visual mode
+        if self.selection_mode and self.selected_task_indices:
+            if not self.selected_task_indices:
+                return
+
+            # Get the first selected task (topmost)
+            selected_indices = sorted(self.selected_task_indices)
+            first_selected = selected_indices[0]
+
+            if first_selected <= 0:
+                return
+
+            # Validate all selected tasks are at the same indent level (siblings)
+            selected_indents = {self.daily_list.tasks[i].indent_level
+                               for i in selected_indices
+                               if i < len(self.daily_list.tasks)}
+            if len(selected_indents) > 1:
+                # Mixed indent levels, can't move as a group
+                return
+
+            # Get the full group including all selected tasks and their children
+            # Start from first selected, end at last child of last selected
+            last_selected = selected_indices[-1]
+            current_start, _ = TaskGroupOperations.get_task_group(
+                self.daily_list.tasks, first_selected
+            )
+            _, current_end = TaskGroupOperations.get_task_group(
+                self.daily_list.tasks, last_selected
+            )
+
+            # Find previous sibling group at the same indent level
+            prev_group = TaskGroupOperations.find_prev_sibling_group(
+                self.daily_list.tasks, first_selected
+            )
+            if prev_group is None:
+                return
+
+            prev_start, prev_end = prev_group
+
+            # Extract groups
+            current_group = self.daily_list.tasks[current_start:current_end + 1]
+            prev_group_tasks = self.daily_list.tasks[prev_start:prev_end + 1]
+
+            # Rebuild task list with swapped groups
+            new_tasks = (
+                self.daily_list.tasks[:prev_start] +
+                current_group +
+                prev_group_tasks +
+                self.daily_list.tasks[current_end + 1:]
+            )
+
+            self.daily_list.tasks = new_tasks
+
+            # Update selection indices to reflect new positions
+            offset = len(prev_group_tasks)
+            self.selected_task_indices = {idx - offset for idx in self.selected_task_indices}
+
+            task_widget.selected_index = prev_start
+            self.save_and_refresh()
+            return
+
+        # Single task mode (original behavior)
         if task_widget.selected_index <= 0:
             return
 
@@ -584,9 +647,67 @@ class TaskJournalApp(App):
         self.save_and_refresh()
 
     def action_move_task_down(self) -> None:
-        """Move selected task (and its children) down, only within same indent level."""
+        """Move selected task(s) (and their children) down, only within same indent level."""
         task_widget = self.query_one(TaskListWidget)
 
+        # Handle multiple selected tasks in visual mode
+        if self.selection_mode and self.selected_task_indices:
+            if not self.selected_task_indices:
+                return
+
+            # Get the first and last selected tasks
+            selected_indices = sorted(self.selected_task_indices)
+            first_selected = selected_indices[0]
+            last_selected = selected_indices[-1]
+
+            # Validate all selected tasks are at the same indent level (siblings)
+            selected_indents = {self.daily_list.tasks[i].indent_level
+                               for i in selected_indices
+                               if i < len(self.daily_list.tasks)}
+            if len(selected_indents) > 1:
+                # Mixed indent levels, can't move as a group
+                return
+
+            # Get the full group including all selected tasks and their children
+            current_start, _ = TaskGroupOperations.get_task_group(
+                self.daily_list.tasks, first_selected
+            )
+            _, current_end = TaskGroupOperations.get_task_group(
+                self.daily_list.tasks, last_selected
+            )
+
+            # Find next sibling group at the same indent level (use last selected)
+            next_group = TaskGroupOperations.find_next_sibling_group(
+                self.daily_list.tasks, last_selected
+            )
+            if next_group is None:
+                return
+
+            next_start, next_end = next_group
+
+            # Extract groups
+            current_group = self.daily_list.tasks[current_start:current_end + 1]
+            next_group_tasks = self.daily_list.tasks[next_start:next_end + 1]
+
+            # Rebuild task list with swapped groups
+            new_tasks = (
+                self.daily_list.tasks[:current_start] +
+                next_group_tasks +
+                current_group +
+                self.daily_list.tasks[next_end + 1:]
+            )
+
+            self.daily_list.tasks = new_tasks
+
+            # Update selection indices to reflect new positions
+            offset = len(next_group_tasks)
+            self.selected_task_indices = {idx + offset for idx in self.selected_task_indices}
+
+            task_widget.selected_index = current_start + offset
+            self.save_and_refresh()
+            return
+
+        # Single task mode (original behavior)
         # Get current task group
         current_start, current_end = TaskGroupOperations.get_task_group(
             self.daily_list.tasks, task_widget.selected_index
